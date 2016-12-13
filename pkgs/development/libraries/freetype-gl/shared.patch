@@ -1,0 +1,28 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4eb55e9..831ea08 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -136,18 +136,21 @@ set(FREETYPE_GL_SRC
+     vertex-buffer.c
+ )
+ 
+-add_library(freetype-gl STATIC
++add_library(freetype-gl SHARED
+     ${FREETYPE_GL_SRC}
+     ${FREETYPE_GL_HDR}
+ )
+ 
++target_link_libraries(freetype-gl
++    ${FREETYPE_LIBRARIES}
++)
++
+ if(freetype-gl_BUILD_MAKEFONT)
+     add_executable(makefont makefont.c)
+ 
+     target_link_libraries(makefont
+         freetype-gl
+         ${OPENGL_LIBRARY}
+-        ${FREETYPE_LIBRARIES}
+         ${MATH_LIBRARY}
+         ${GLEW_LIBRARY}
+     )
