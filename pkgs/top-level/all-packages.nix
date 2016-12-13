@@ -7255,6 +7255,8 @@ with pkgs;
 
   freetype = callPackage ../development/libraries/freetype { };
 
+  freetype-gl = callPackage ../development/libraries/freetype-gl { };
+
   frei0r = callPackage ../development/libraries/frei0r { };
 
   fribidi = callPackage ../development/libraries/fribidi { };
