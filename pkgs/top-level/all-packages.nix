@@ -6139,6 +6139,8 @@ with pkgs;
   ansible  = python2Packages.ansible2;
   ansible2 = python2Packages.ansible2;
 
+  ant-tweak-bar = callPackage ../development/libraries/ant-tweak-bar { };
+
   antlr = callPackage ../development/tools/parsing/antlr/2.7.7.nix { };
 
   antlr3_4 = callPackage ../development/tools/parsing/antlr/3.4.nix { };
