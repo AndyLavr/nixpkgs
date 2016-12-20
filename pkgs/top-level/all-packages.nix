@@ -8340,6 +8340,8 @@ with pkgs;
 
   libksi = callPackage ../development/libraries/libksi { };
 
+  libktx = callPackage ../development/libraries/libktx { };
+
   libmad = callPackage ../development/libraries/libmad { };
 
   libmatchbox = callPackage ../development/libraries/libmatchbox { };
