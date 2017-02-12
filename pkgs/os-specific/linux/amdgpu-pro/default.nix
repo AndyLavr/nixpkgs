@@ -28,6 +28,8 @@ let
 
   ncurses5 = ncurses.override { abiVersion = "5"; };
 
+  compareVersions = builtins.compareVersions;
+
 in stdenv.mkDerivation rec {
 
   version = "16.60";
@@ -57,12 +59,12 @@ in stdenv.mkDerivation rec {
     sourceRoot=.
   '';
 
-  modulePatches = [
+  modulePatches = optionals (!libsOnly) ([
     ./patches/0001-disable-firmware-copy.patch
     ./patches/0002-linux-4.9-fixes.patch
     ./patches/0003-Change-seq_printf-format-for-64-bit-context.patch
     ./patches/0004-fix-warnings-for-Werror.patch
-  ];
+  ] ++ optional (compareVersions kernel.version "4.10" >= 0) ./patches/0005-fixes-for-linux-4.10.patch);
 
   patchPhase = optionalString (!libsOnly) ''
     pushd usr/src/amdgpu-pro-${build}

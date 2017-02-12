@@ -1,0 +1,3749 @@
+From 7ec6a90ea59d61cbebf663255a252793f0b42bff Mon Sep 17 00:00:00 2001
+From: David McFarland <corngood@gmail.com>
+Date: Sat, 11 Feb 2017 18:46:25 -0400
+Subject: [PATCH] fixes for linux-4.10
+
+---
+ amd/amdgpu/amdgpu.h                     | 32 ++++++------
+ amd/amdgpu/amdgpu_benchmark.c           |  8 +--
+ amd/amdgpu/amdgpu_bios.c                |  3 +-
+ amd/amdgpu/amdgpu_cs.c                  | 28 +++++------
+ amd/amdgpu/amdgpu_ctx.c                 | 18 +++----
+ amd/amdgpu/amdgpu_device.c              | 12 ++---
+ amd/amdgpu/amdgpu_display.c             | 16 +++---
+ amd/amdgpu/amdgpu_fb.c                  | 14 +++---
+ amd/amdgpu/amdgpu_fence.c               | 48 +++++++++---------
+ amd/amdgpu/amdgpu_gem.c                 |  3 +-
+ amd/amdgpu/amdgpu_ib.c                  |  6 +--
+ amd/amdgpu/amdgpu_job.c                 | 22 ++++-----
+ amd/amdgpu/amdgpu_object.c              | 16 +++---
+ amd/amdgpu/amdgpu_object.h              |  8 +--
+ amd/amdgpu/amdgpu_ring.h                |  4 +-
+ amd/amdgpu/amdgpu_sa.c                  | 20 ++++----
+ amd/amdgpu/amdgpu_sem.c                 | 16 +++---
+ amd/amdgpu/amdgpu_sem.h                 |  4 +-
+ amd/amdgpu/amdgpu_sync.c                | 51 ++++++++++---------
+ amd/amdgpu/amdgpu_sync.h                | 10 ++--
+ amd/amdgpu/amdgpu_test.c                | 12 ++---
+ amd/amdgpu/amdgpu_trace.h               |  4 +-
+ amd/amdgpu/amdgpu_ttm.c                 | 18 +++----
+ amd/amdgpu/amdgpu_ttm.h                 |  4 +-
+ amd/amdgpu/amdgpu_uvd.c                 | 26 +++++-----
+ amd/amdgpu/amdgpu_uvd.h                 |  4 +-
+ amd/amdgpu/amdgpu_vce.c                 | 26 +++++-----
+ amd/amdgpu/amdgpu_vce.h                 |  4 +-
+ amd/amdgpu/amdgpu_vm.c                  | 74 +++++++++++++--------------
+ amd/amdgpu/amdgpu_vm.h                  | 10 ++--
+ amd/amdgpu/cik_sdma.c                   |  6 +--
+ amd/amdgpu/dce_v10_0.c                  |  7 +--
+ amd/amdgpu/dce_v11_0.c                  |  7 +--
+ amd/amdgpu/dce_v6_0.c                   |  7 +--
+ amd/amdgpu/dce_v8_0.c                   |  7 +--
+ amd/amdgpu/dce_virtual.c                |  4 +-
+ amd/amdgpu/gfx_v6_0.c                   |  6 +--
+ amd/amdgpu/gfx_v7_0.c                   |  6 +--
+ amd/amdgpu/gfx_v8_0.c                   | 12 ++---
+ amd/amdgpu/sdma_v2_4.c                  |  6 +--
+ amd/amdgpu/sdma_v3_0.c                  |  6 +--
+ amd/amdgpu/si_dma.c                     |  6 +--
+ amd/amdkcl/kcl_drm.c                    |  6 +--
+ amd/amdkcl/kcl_fence.c                  | 52 ++++++++++---------
+ amd/amdkcl/kcl_reservation.c            | 40 +++++++--------
+ amd/amdkcl/symbols.c                    |  1 +
+ amd/display/amdgpu_dm/amdgpu_dm.c       |  2 +-
+ amd/display/amdgpu_dm/amdgpu_dm_types.c |  4 +-
+ amd/scheduler/gpu_sched_trace.h         |  4 +-
+ amd/scheduler/gpu_scheduler.c           | 59 ++++++++++++----------
+ amd/scheduler/gpu_scheduler.h           | 26 +++++-----
+ amd/scheduler/sched_fence.c             | 32 ++++++------
+ include/drm/ttm/ttm_bo_api.h            |  2 +-
+ include/drm/ttm/ttm_bo_driver.h         |  6 +--
+ include/drm/ttm/ttm_execbuf_util.h      |  2 +-
+ include/kcl/kcl_fence.h                 | 25 +++++-----
+ include/kcl/kcl_fence_array.h           | 22 +++++----
+ include/rename_symbol.h                 | 88 +++++++++++++++++++++++++++++++++
+ ttm/ttm_bo.c                            | 24 ++++-----
+ ttm/ttm_bo_util.c                       | 22 ++++-----
+ ttm/ttm_bo_vm.c                         | 10 ++--
+ ttm/ttm_execbuf_util.c                  |  3 +-
+ 62 files changed, 572 insertions(+), 459 deletions(-)
+ create mode 100644 amd/amdkcl/symbols.c
+ create mode 100644 include/rename_symbol.h
+
+diff --git a/amd/amdgpu/amdgpu.h b/amd/amdgpu/amdgpu.h
+index bffe16e..6974204 100644
+--- a/amd/amdgpu/amdgpu.h
++++ b/amd/amdgpu/amdgpu.h
+@@ -34,7 +34,7 @@
+ #include <linux/kref.h>
+ #include <linux/interval_tree.h>
+ #include <linux/hashtable.h>
+-#include <linux/fence.h>
++#include <linux/dma-fence.h>
+ 
+ #include <ttm/ttm_bo_api.h>
+ #include <ttm/ttm_bo_driver.h>
+@@ -362,7 +362,7 @@ struct amdgpu_bo_va_mapping {
+ struct amdgpu_bo_va {
+ 	/* protected by bo being reserved */
+ 	struct list_head		bo_list;
+-	struct fence		        *last_pt_update;
++	struct dma_fence		        *last_pt_update;
+ 	unsigned			ref_count;
+ 
+ 	/* protected by vm mutex and spinlock */
+@@ -478,7 +478,7 @@ struct amdgpu_sa_bo {
+ 	struct amdgpu_sa_manager	*manager;
+ 	unsigned			soffset;
+ 	unsigned			eoffset;
+-	struct fence		        *fence;
++	struct dma_fence		        *fence;
+ };
+ 
+ /*
+@@ -616,10 +616,10 @@ struct amdgpu_flip_work {
+ 	uint64_t			base;
+ 	struct drm_pending_vblank_event *event;
+ 	struct amdgpu_bo		*old_abo;
+-	struct fence			*excl;
++	struct dma_fence			*excl;
+ 	unsigned			shared_count;
+-	struct fence			**shared;
+-	struct fence_cb			cb;
++	struct dma_fence			**shared;
++	struct dma_fence_cb			cb;
+ 	bool				async;
+ };
+ 
+@@ -647,7 +647,7 @@ void amdgpu_job_free_resources(struct amdgpu_job *job);
+ void amdgpu_job_free(struct amdgpu_job *job);
+ int amdgpu_job_submit(struct amdgpu_job *job, struct amdgpu_ring *ring,
+ 		      struct amd_sched_entity *entity, void *owner,
+-		      struct fence **f);
++		      struct dma_fence **f);
+ 
+ /*
+  * context related structures
+@@ -655,7 +655,7 @@ int amdgpu_job_submit(struct amdgpu_job *job, struct amdgpu_ring *ring,
+ 
+ struct amdgpu_ctx_ring {
+ 	uint64_t		sequence;
+-	struct fence		**fences;
++	struct dma_fence		**fences;
+ 	struct amd_sched_entity	entity;
+ 	struct list_head	sem_list;
+ 	struct mutex            sem_lock;
+@@ -666,7 +666,7 @@ struct amdgpu_ctx {
+ 	struct amdgpu_device    *adev;
+ 	unsigned		reset_counter;
+ 	spinlock_t		ring_lock;
+-	struct fence            **fences;
++	struct dma_fence            **fences;
+ 	struct amdgpu_ctx_ring	rings[AMDGPU_MAX_RINGS];
+ 	bool preamble_presented;
+ };
+@@ -682,8 +682,8 @@ struct amdgpu_ctx *amdgpu_ctx_get(struct amdgpu_fpriv *fpriv, uint32_t id);
+ int amdgpu_ctx_put(struct amdgpu_ctx *ctx);
+ 
+ uint64_t amdgpu_ctx_add_fence(struct amdgpu_ctx *ctx, struct amdgpu_ring *ring,
+-			      struct fence *fence);
+-struct fence *amdgpu_ctx_get_fence(struct amdgpu_ctx *ctx,
++			      struct dma_fence *fence);
++struct dma_fence *amdgpu_ctx_get_fence(struct amdgpu_ctx *ctx,
+ 				   struct amdgpu_ring *ring, uint64_t seq);
+ 
+ int amdgpu_ctx_ioctl(struct drm_device *dev, void *data,
+@@ -896,10 +896,10 @@ struct amdgpu_gfx {
+ int amdgpu_ib_get(struct amdgpu_device *adev, struct amdgpu_vm *vm,
+ 		  unsigned size, struct amdgpu_ib *ib);
+ void amdgpu_ib_free(struct amdgpu_device *adev, struct amdgpu_ib *ib,
+-		    struct fence *f);
++		    struct dma_fence *f);
+ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
+-		       struct amdgpu_ib *ib, struct fence *last_vm_update,
+-		       struct amdgpu_job *job, struct fence **f);
++		       struct amdgpu_ib *ib, struct dma_fence *last_vm_update,
++		       struct amdgpu_job *job, struct dma_fence **f);
+ int amdgpu_ib_pool_init(struct amdgpu_device *adev);
+ void amdgpu_ib_pool_fini(struct amdgpu_device *adev);
+ int amdgpu_ib_ring_tests(struct amdgpu_device *adev);
+@@ -930,7 +930,7 @@ struct amdgpu_cs_parser {
+ 	struct amdgpu_bo_list		*bo_list;
+ 	struct amdgpu_bo_list_entry	vm_pd;
+ 	struct list_head		validated;
+-	struct fence			*fence;
++	struct dma_fence			*fence;
+ 	uint64_t			bytes_moved_threshold;
+ 	uint64_t			bytes_moved;
+ 	struct amdgpu_bo_list_entry	*evictable;
+@@ -950,7 +950,7 @@ struct amdgpu_job {
+ 	struct amdgpu_ring	*ring;
+ 	struct amdgpu_sync	sync;
+ 	struct amdgpu_ib	*ibs;
+-	struct fence		*fence; /* the hw fence */
++	struct dma_fence		*fence; /* the hw fence */
+ 	uint32_t		preamble_status;
+ 	uint32_t		num_ibs;
+ 	void			*owner;
+diff --git a/amd/amdgpu/amdgpu_benchmark.c b/amd/amdgpu/amdgpu_benchmark.c
+index 3453052..cc97eee 100644
+--- a/amd/amdgpu/amdgpu_benchmark.c
++++ b/amd/amdgpu/amdgpu_benchmark.c
+@@ -33,7 +33,7 @@ static int amdgpu_benchmark_do_move(struct amdgpu_device *adev, unsigned size,
+ {
+ 	unsigned long start_jiffies;
+ 	unsigned long end_jiffies;
+-	struct fence *fence = NULL;
++	struct dma_fence *fence = NULL;
+ 	int i, r;
+ 
+ 	start_jiffies = jiffies;
+@@ -43,17 +43,17 @@ static int amdgpu_benchmark_do_move(struct amdgpu_device *adev, unsigned size,
+ 				       false);
+ 		if (r)
+ 			goto exit_do_move;
+-		r = fence_wait(fence, false);
++		r = dma_fence_wait(fence, false);
+ 		if (r)
+ 			goto exit_do_move;
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 	}
+ 	end_jiffies = jiffies;
+ 	r = jiffies_to_msecs(end_jiffies - start_jiffies);
+ 
+ exit_do_move:
+ 	if (fence)
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 	return r;
+ }
+ 
+diff --git a/amd/amdgpu/amdgpu_bios.c b/amd/amdgpu/amdgpu_bios.c
+index 4f973a9..8ec1967 100644
+--- a/amd/amdgpu/amdgpu_bios.c
++++ b/amd/amdgpu/amdgpu_bios.c
+@@ -305,8 +305,9 @@ static bool amdgpu_acpi_vfct_bios(struct amdgpu_device *adev)
+ 	GOP_VBIOS_CONTENT *vbios;
+ 	VFCT_IMAGE_HEADER *vhdr;
+ 
+-	if (!ACPI_SUCCESS(acpi_get_table_with_size("VFCT", 1, &hdr, &tbl_size)))
++	if (!ACPI_SUCCESS(acpi_get_table("VFCT", 1, &hdr)))
+ 		return false;
++	tbl_size = hdr->length;
+ 	if (tbl_size < sizeof(UEFI_ACPI_VFCT)) {
+ 		DRM_ERROR("ACPI VFCT table present but broken (too short #1)\n");
+ 		goto out_unmap;
+diff --git a/amd/amdgpu/amdgpu_cs.c b/amd/amdgpu/amdgpu_cs.c
+index 45e04df..54c097e 100644
+--- a/amd/amdgpu/amdgpu_cs.c
++++ b/amd/amdgpu/amdgpu_cs.c
+@@ -736,7 +736,7 @@ static void amdgpu_cs_parser_fini(struct amdgpu_cs_parser *parser, int error, bo
+ 		ttm_eu_backoff_reservation(&parser->ticket,
+ 					   &parser->validated);
+ 	}
+-	fence_put(parser->fence);
++	dma_fence_put(parser->fence);
+ 
+ 	if (parser->ctx)
+ 		amdgpu_ctx_put(parser->ctx);
+@@ -773,7 +773,7 @@ static int amdgpu_bo_vm_update_pte(struct amdgpu_cs_parser *p,
+ 
+ 	if (p->bo_list) {
+ 		for (i = 0; i < p->bo_list->num_entries; i++) {
+-			struct fence *f;
++			struct dma_fence *f;
+ 
+ 			/* ignore duplicates */
+ 			bo = p->bo_list->array[i].robj;
+@@ -964,7 +964,7 @@ static int amdgpu_cs_dependencies(struct amdgpu_device *adev,
+ 		for (j = 0; j < num_deps; ++j) {
+ 			struct amdgpu_ring *ring;
+ 			struct amdgpu_ctx *ctx;
+-			struct fence *fence;
++			struct dma_fence *fence;
+ 
+ 			r = amdgpu_cs_get_ring(adev, deps[j].ip_type,
+ 					       deps[j].ip_instance,
+@@ -986,7 +986,7 @@ static int amdgpu_cs_dependencies(struct amdgpu_device *adev,
+ 			} else if (fence) {
+ 				r = amdgpu_sync_fence(adev, &p->job->sync,
+ 						      fence);
+-				fence_put(fence);
++				dma_fence_put(fence);
+ 				amdgpu_ctx_put(ctx);
+ 				if (r)
+ 					return r;
+@@ -1016,7 +1016,7 @@ static int amdgpu_cs_submit(struct amdgpu_cs_parser *p,
+ 
+ 	job->owner = p->filp;
+ 	job->fence_ctx = entity->fence_context;
+-	p->fence = fence_get(&job->base.s_fence->finished);
++	p->fence = dma_fence_get(&job->base.s_fence->finished);
+ 	cs->out.handle = amdgpu_ctx_add_fence(p->ctx, ring, p->fence);
+ 	job->uf_sequence = cs->out.handle;
+ 	amdgpu_job_free_resources(job);
+@@ -1098,7 +1098,7 @@ int amdgpu_cs_wait_ioctl(struct drm_device *dev, void *data,
+ 	unsigned long timeout = amdgpu_gem_timeout(wait->in.timeout);
+ 	struct amdgpu_ring *ring = NULL;
+ 	struct amdgpu_ctx *ctx;
+-	struct fence *fence;
++	struct dma_fence *fence;
+ 	long r;
+ 
+ 	r = amdgpu_cs_get_ring(adev, wait->in.ip_type, wait->in.ip_instance,
+@@ -1115,7 +1115,7 @@ int amdgpu_cs_wait_ioctl(struct drm_device *dev, void *data,
+ 		r = PTR_ERR(fence);
+ 	else if (fence) {
+ 		r = kcl_fence_wait_timeout(fence, true, timeout);
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 	} else
+ 		r = 1;
+ 
+@@ -1136,13 +1136,13 @@ int amdgpu_cs_wait_ioctl(struct drm_device *dev, void *data,
+  * @filp: file private
+  * @user: drm_amdgpu_fence copied from user space
+  */
+-static struct fence *amdgpu_cs_get_fence(struct amdgpu_device *adev,
++static struct dma_fence *amdgpu_cs_get_fence(struct amdgpu_device *adev,
+ 					 struct drm_file *filp,
+ 					 struct drm_amdgpu_fence *user)
+ {
+ 	struct amdgpu_ring *ring;
+ 	struct amdgpu_ctx *ctx;
+-	struct fence *fence;
++	struct dma_fence *fence;
+ 	int r;
+ 
+ 	r = amdgpu_cs_get_ring(adev, user->ip_type, user->ip_instance,
+@@ -1178,7 +1178,7 @@ static int amdgpu_cs_wait_all_fences(struct amdgpu_device *adev,
+ 	long r = 1;
+ 
+ 	for (i = 0; i < fence_count; i++) {
+-		struct fence *fence;
++		struct dma_fence *fence;
+ 		unsigned long timeout = amdgpu_gem_timeout(wait->in.timeout_ns);
+ 
+ 		fence = amdgpu_cs_get_fence(adev, filp, &fences[i]);
+@@ -1217,18 +1217,18 @@ static int amdgpu_cs_wait_any_fence(struct amdgpu_device *adev,
+ 	unsigned long timeout = amdgpu_gem_timeout(wait->in.timeout_ns);
+ 	uint32_t fence_count = wait->in.fence_count;
+ 	uint32_t first = ~0;
+-	struct fence **array;
++	struct dma_fence **array;
+ 	unsigned i;
+ 	long r;
+ 
+ 	/* Prepare the fence array */
+-	array = (struct fence **)kcalloc(fence_count, sizeof(struct fence *),
++	array = (struct dma_fence **)kcalloc(fence_count, sizeof(struct dma_fence *),
+ 			GFP_KERNEL);
+ 	if (array == NULL)
+ 		return -ENOMEM;
+ 
+ 	for (i = 0; i < fence_count; i++) {
+-		struct fence *fence;
++		struct dma_fence *fence;
+ 
+ 		fence = amdgpu_cs_get_fence(adev, filp, &fences[i]);
+ 		if (IS_ERR(fence)) {
+@@ -1255,7 +1255,7 @@ out:
+ 
+ err_free_fence_array:
+ 	for (i = 0; i < fence_count; i++)
+-		fence_put(array[i]);
++		dma_fence_put(array[i]);
+ 	kfree(array);
+ 
+ 	return r;
+diff --git a/amd/amdgpu/amdgpu_ctx.c b/amd/amdgpu/amdgpu_ctx.c
+index d7df6e0..9357660 100644
+--- a/amd/amdgpu/amdgpu_ctx.c
++++ b/amd/amdgpu/amdgpu_ctx.c
+@@ -35,7 +35,7 @@ static int amdgpu_ctx_init(struct amdgpu_device *adev, struct amdgpu_ctx *ctx)
+ 	kref_init(&ctx->refcount);
+ 	spin_lock_init(&ctx->ring_lock);
+ 	ctx->fences = kcalloc(amdgpu_sched_jobs * AMDGPU_MAX_RINGS,
+-			      sizeof(struct fence*), GFP_KERNEL);
++			      sizeof(struct dma_fence*), GFP_KERNEL);
+ 	if (!ctx->fences)
+ 		return -ENOMEM;
+ 
+@@ -80,7 +80,7 @@ static void amdgpu_ctx_fini(struct amdgpu_ctx *ctx)
+ 
+ 	for (i = 0; i < AMDGPU_MAX_RINGS; ++i)
+ 		for (j = 0; j < amdgpu_sched_jobs; ++j) {
+-			fence_put(ctx->rings[i].fences[j]);
++			dma_fence_put(ctx->rings[i].fences[j]);
+ 			mutex_destroy(&ctx->rings[i].sem_lock);
+ 		}
+ 	kfree(ctx->fences);
+@@ -244,12 +244,12 @@ int amdgpu_ctx_put(struct amdgpu_ctx *ctx)
+ }
+ 
+ uint64_t amdgpu_ctx_add_fence(struct amdgpu_ctx *ctx, struct amdgpu_ring *ring,
+-			      struct fence *fence)
++			      struct dma_fence *fence)
+ {
+ 	struct amdgpu_ctx_ring *cring = & ctx->rings[ring->idx];
+ 	uint64_t seq = cring->sequence;
+ 	unsigned idx = 0;
+-	struct fence *other = NULL;
++	struct dma_fence *other = NULL;
+ 
+ 	idx = seq & (amdgpu_sched_jobs - 1);
+ 	other = cring->fences[idx];
+@@ -260,23 +260,23 @@ uint64_t amdgpu_ctx_add_fence(struct amdgpu_ctx *ctx, struct amdgpu_ring *ring,
+ 			DRM_ERROR("Error (%ld) waiting for fence!\n", r);
+ 	}
+ 
+-	fence_get(fence);
++	dma_fence_get(fence);
+ 
+ 	spin_lock(&ctx->ring_lock);
+ 	cring->fences[idx] = fence;
+ 	cring->sequence++;
+ 	spin_unlock(&ctx->ring_lock);
+ 
+-	fence_put(other);
++	dma_fence_put(other);
+ 
+ 	return seq;
+ }
+ 
+-struct fence *amdgpu_ctx_get_fence(struct amdgpu_ctx *ctx,
++struct dma_fence *amdgpu_ctx_get_fence(struct amdgpu_ctx *ctx,
+ 				   struct amdgpu_ring *ring, uint64_t seq)
+ {
+ 	struct amdgpu_ctx_ring *cring = & ctx->rings[ring->idx];
+-	struct fence *fence;
++	struct dma_fence *fence;
+ 
+ 	spin_lock(&ctx->ring_lock);
+ 
+@@ -291,7 +291,7 @@ struct fence *amdgpu_ctx_get_fence(struct amdgpu_ctx *ctx,
+ 		return NULL;
+ 	}
+ 
+-	fence = fence_get(cring->fences[seq & (amdgpu_sched_jobs - 1)]);
++	fence = dma_fence_get(cring->fences[seq & (amdgpu_sched_jobs - 1)]);
+ 	spin_unlock(&ctx->ring_lock);
+ 
+ 	return fence;
+diff --git a/amd/amdgpu/amdgpu_device.c b/amd/amdgpu/amdgpu_device.c
+index b7f17c2..58b8636 100644
+--- a/amd/amdgpu/amdgpu_device.c
++++ b/amd/amdgpu/amdgpu_device.c
+@@ -2272,7 +2272,7 @@ bool amdgpu_need_backup(struct amdgpu_device *adev)
+ static int amdgpu_recover_vram_from_shadow(struct amdgpu_device *adev,
+ 					   struct amdgpu_ring *ring,
+ 					   struct amdgpu_bo *bo,
+-					   struct fence **fence)
++					   struct dma_fence **fence)
+ {
+ 	uint32_t domain;
+ 	int r;
+@@ -2392,30 +2392,30 @@ retry:
+ 		if (need_full_reset && amdgpu_need_backup(adev)) {
+ 			struct amdgpu_ring *ring = adev->mman.buffer_funcs_ring;
+ 			struct amdgpu_bo *bo, *tmp;
+-			struct fence *fence = NULL, *next = NULL;
++			struct dma_fence *fence = NULL, *next = NULL;
+ 
+ 			DRM_INFO("recover vram bo from shadow\n");
+ 			mutex_lock(&adev->shadow_list_lock);
+ 			list_for_each_entry_safe(bo, tmp, &adev->shadow_list, shadow_list) {
+ 				amdgpu_recover_vram_from_shadow(adev, ring, bo, &next);
+ 				if (fence) {
+-					r = fence_wait(fence, false);
++					r = dma_fence_wait(fence, false);
+ 					if (r) {
+ 						WARN(r, "recovery from shadow isn't comleted\n");
+ 						break;
+ 					}
+ 				}
+ 
+-				fence_put(fence);
++				dma_fence_put(fence);
+ 				fence = next;
+ 			}
+ 			mutex_unlock(&adev->shadow_list_lock);
+ 			if (fence) {
+-				r = fence_wait(fence, false);
++				r = dma_fence_wait(fence, false);
+ 				if (r)
+ 					WARN(r, "recovery from shadow isn't comleted\n");
+ 			}
+-			fence_put(fence);
++			dma_fence_put(fence);
+ 		}
+ 		for (i = 0; i < AMDGPU_MAX_RINGS; ++i) {
+ 			struct amdgpu_ring *ring = adev->rings[i];
+diff --git a/amd/amdgpu/amdgpu_display.c b/amd/amdgpu/amdgpu_display.c
+index 4e39853..e4e624f 100644
+--- a/amd/amdgpu/amdgpu_display.c
++++ b/amd/amdgpu/amdgpu_display.c
+@@ -35,29 +35,29 @@
+ #include <drm/drm_crtc_helper.h>
+ #include <drm/drm_edid.h>
+ 
+-static void amdgpu_flip_callback(struct fence *f, struct fence_cb *cb)
++static void amdgpu_flip_callback(struct dma_fence *f, struct dma_fence_cb *cb)
+ {
+ 	struct amdgpu_flip_work *work =
+ 		container_of(cb, struct amdgpu_flip_work, cb);
+ 
+-	fence_put(f);
++	dma_fence_put(f);
+ 	schedule_work(&work->flip_work);
+ }
+ 
+ static bool amdgpu_flip_handle_fence(struct amdgpu_flip_work *work,
+-				     struct fence **f)
++				     struct dma_fence **f)
+ {
+-	struct fence *fence= *f;
++	struct dma_fence *fence= *f;
+ 
+ 	if (fence == NULL)
+ 		return false;
+ 
+ 	*f = NULL;
+ 
+-	if (!fence_add_callback(fence, &work->cb, amdgpu_flip_callback))
++	if (!dma_fence_add_callback(fence, &work->cb, amdgpu_flip_callback))
+ 		return true;
+ 
+-	fence_put(fence);
++	dma_fence_put(fence);
+ 	return false;
+ }
+ 
+@@ -312,9 +312,9 @@ unreserve:
+ 
+ cleanup:
+ 	amdgpu_bo_unref(&work->old_abo);
+-	fence_put(work->excl);
++	dma_fence_put(work->excl);
+ 	for (i = 0; i < work->shared_count; ++i)
+-		fence_put(work->shared[i]);
++		dma_fence_put(work->shared[i]);
+ 	kfree(work->shared);
+ 	kfree(work);
+ 
+diff --git a/amd/amdgpu/amdgpu_fb.c b/amd/amdgpu/amdgpu_fb.c
+index 85558a7..625995c 100644
+--- a/amd/amdgpu/amdgpu_fb.c
++++ b/amd/amdgpu/amdgpu_fb.c
+@@ -88,12 +88,12 @@ static struct fb_ops amdgpufb_ops = {
+ };
+ 
+ 
+-int amdgpu_align_pitch(struct amdgpu_device *adev, int width, int bpp, bool tiled)
++int amdgpu_align_pitch(struct amdgpu_device *adev, int width, int cpp, bool tiled)
+ {
+ 	int aligned = width;
+ 	int pitch_mask = 0;
+ 
+-	switch (bpp / 8) {
++	switch (cpp) {
+ 	case 1:
+ 		pitch_mask = 255;
+ 		break;
+@@ -108,7 +108,7 @@ int amdgpu_align_pitch(struct amdgpu_device *adev, int width, int bpp, bool tile
+ 
+ 	aligned += pitch_mask;
+ 	aligned &= ~pitch_mask;
+-	return aligned;
++	return aligned * cpp;
+ }
+ 
+ static void amdgpufb_destroy_pinned_object(struct drm_gem_object *gobj)
+@@ -137,13 +137,13 @@ static int amdgpufb_create_pinned_object(struct amdgpu_fbdev *rfbdev,
+ 	int ret;
+ 	int aligned_size, size;
+ 	int height = mode_cmd->height;
+-	u32 bpp, depth;
++	u32 cpp;
+ 
+-	drm_fb_get_bpp_depth(mode_cmd->pixel_format, &depth, &bpp);
++	cpp = drm_format_plane_cpp(mode_cmd->pixel_format, 0);
+ 
+ 	/* need to align pitch with crtc limits */
+-	mode_cmd->pitches[0] = amdgpu_align_pitch(adev, mode_cmd->width, bpp,
+-						  fb_tiled) * ((bpp + 1) / 8);
++	mode_cmd->pitches[0] = amdgpu_align_pitch(adev, mode_cmd->width, cpp,
++                                            fb_tiled);
+ 
+ 	height = ALIGN(mode_cmd->height, 8);
+ 	size = mode_cmd->pitches[0] * height;
+diff --git a/amd/amdgpu/amdgpu_fence.c b/amd/amdgpu/amdgpu_fence.c
+index 2d23200..8a50092 100644
+--- a/amd/amdgpu/amdgpu_fence.c
++++ b/amd/amdgpu/amdgpu_fence.c
+@@ -48,7 +48,7 @@
+  */
+ 
+ struct amdgpu_fence {
+-	struct fence base;
++	struct dma_fence base;
+ 
+ 	/* RB, DMA, etc. */
+ 	struct amdgpu_ring		*ring;
+@@ -74,8 +74,8 @@ void amdgpu_fence_slab_fini(void)
+ /*
+  * Cast helper
+  */
+-static const struct fence_ops amdgpu_fence_ops;
+-static inline struct amdgpu_fence *to_amdgpu_fence(struct fence *f)
++static const struct dma_fence_ops amdgpu_fence_ops;
++static inline struct amdgpu_fence *to_amdgpu_fence(struct dma_fence *f)
+ {
+ 	struct amdgpu_fence *__f = container_of(f, struct amdgpu_fence, base);
+ 
+@@ -131,11 +131,11 @@ static u32 amdgpu_fence_read(struct amdgpu_ring *ring)
+  * Emits a fence command on the requested ring (all asics).
+  * Returns 0 on success, -ENOMEM on failure.
+  */
+-int amdgpu_fence_emit(struct amdgpu_ring *ring, struct fence **f)
++int amdgpu_fence_emit(struct amdgpu_ring *ring, struct dma_fence **f)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_fence *fence;
+-	struct fence *old, **ptr;
++	struct dma_fence *old, **ptr;
+ 	uint32_t seq;
+ 
+ 	fence = kmem_cache_alloc(amdgpu_fence_slab, GFP_KERNEL);
+@@ -156,12 +156,12 @@ int amdgpu_fence_emit(struct amdgpu_ring *ring, struct fence **f)
+ 	 * emitting the fence would mess up the hardware ring buffer.
+ 	 */
+ 	old = rcu_dereference_protected(*ptr, 1);
+-	if (old && !fence_is_signaled(old)) {
++	if (old && !dma_fence_is_signaled(old)) {
+ 		DRM_INFO("rcu slot is busy\n");
+-		fence_wait(old, false);
++		dma_fence_wait(old, false);
+ 	}
+ 
+-	rcu_assign_pointer(*ptr, fence_get(&fence->base));
++	rcu_assign_pointer(*ptr, dma_fence_get(&fence->base));
+ 
+ 	*f = &fence->base;
+ 
+@@ -212,7 +212,7 @@ void amdgpu_fence_process(struct amdgpu_ring *ring)
+ 	seq &= drv->num_fences_mask;
+ 
+ 	do {
+-		struct fence *fence, **ptr;
++		struct dma_fence *fence, **ptr;
+ 
+ 		++last_seq;
+ 		last_seq &= drv->num_fences_mask;
+@@ -225,13 +225,13 @@ void amdgpu_fence_process(struct amdgpu_ring *ring)
+ 		if (!fence)
+ 			continue;
+ 
+-		r = fence_signal(fence);
++		r = dma_fence_signal(fence);
+ 		if (!r)
+-			FENCE_TRACE(fence, "signaled from irq context\n");
++			DMA_FENCE_TRACE(fence, "signaled from irq context\n");
+ 		else
+ 			BUG();
+ 
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 	} while (last_seq != seq);
+ }
+ 
+@@ -261,7 +261,7 @@ static void amdgpu_fence_fallback(unsigned long arg)
+ int amdgpu_fence_wait_empty(struct amdgpu_ring *ring)
+ {
+ 	uint64_t seq = ACCESS_ONCE(ring->fence_drv.sync_seq);
+-	struct fence *fence, **ptr;
++	struct dma_fence *fence, **ptr;
+ 	int r;
+ 
+ 	if (!seq)
+@@ -270,14 +270,14 @@ int amdgpu_fence_wait_empty(struct amdgpu_ring *ring)
+ 	ptr = &ring->fence_drv.fences[seq & ring->fence_drv.num_fences_mask];
+ 	rcu_read_lock();
+ 	fence = rcu_dereference(*ptr);
+-	if (!fence || !fence_get_rcu(fence)) {
++	if (!fence || !dma_fence_get_rcu(fence)) {
+ 		rcu_read_unlock();
+ 		return 0;
+ 	}
+ 	rcu_read_unlock();
+ 
+-	r = fence_wait(fence, false);
+-	fence_put(fence);
++	r = dma_fence_wait(fence, false);
++	dma_fence_put(fence);
+ 	return r;
+ }
+ 
+@@ -456,7 +456,7 @@ void amdgpu_fence_driver_fini(struct amdgpu_device *adev)
+ 		amd_sched_fini(&ring->sched);
+ 		del_timer_sync(&ring->fence_drv.fallback_timer);
+ 		for (j = 0; j <= ring->fence_drv.num_fences_mask; ++j)
+-			fence_put(ring->fence_drv.fences[j]);
++			dma_fence_put(ring->fence_drv.fences[j]);
+ 		kfree(ring->fence_drv.fences);
+ 		ring->fence_drv.fences = NULL;
+ 		ring->fence_drv.initialized = false;
+@@ -545,12 +545,12 @@ void amdgpu_fence_driver_force_completion(struct amdgpu_device *adev)
+  * Common fence implementation
+  */
+ 
+-static const char *amdgpu_fence_get_driver_name(struct fence *fence)
++static const char *amdgpu_fence_get_driver_name(struct dma_fence *fence)
+ {
+ 	return "amdgpu";
+ }
+ 
+-static const char *amdgpu_fence_get_timeline_name(struct fence *f)
++static const char *amdgpu_fence_get_timeline_name(struct dma_fence *f)
+ {
+ 	struct amdgpu_fence *fence = to_amdgpu_fence(f);
+ 	return (const char *)fence->ring->name;
+@@ -564,7 +564,7 @@ static const char *amdgpu_fence_get_timeline_name(struct fence *f)
+  * to fence_queue that checks if this fence is signaled, and if so it
+  * signals the fence and removes itself.
+  */
+-static bool amdgpu_fence_enable_signaling(struct fence *f)
++static bool amdgpu_fence_enable_signaling(struct dma_fence *f)
+ {
+ 	struct amdgpu_fence *fence = to_amdgpu_fence(f);
+ 	struct amdgpu_ring *ring = fence->ring;
+@@ -572,7 +572,7 @@ static bool amdgpu_fence_enable_signaling(struct fence *f)
+ 	if (!timer_pending(&ring->fence_drv.fallback_timer))
+ 		amdgpu_fence_schedule_fallback(ring);
+ 
+-	FENCE_TRACE(&fence->base, "armed on ring %i!\n", ring->idx);
++	DMA_FENCE_TRACE(&fence->base, "armed on ring %i!\n", ring->idx);
+ 
+ 	return true;
+ }
+@@ -586,7 +586,7 @@ static bool amdgpu_fence_enable_signaling(struct fence *f)
+  */
+ static void amdgpu_fence_free(struct rcu_head *rcu)
+ {
+-	struct fence *f = container_of(rcu, struct fence, rcu);
++	struct dma_fence *f = container_of(rcu, struct dma_fence, rcu);
+ 	struct amdgpu_fence *fence = to_amdgpu_fence(f);
+ 	kmem_cache_free(amdgpu_fence_slab, fence);
+ }
+@@ -599,12 +599,12 @@ static void amdgpu_fence_free(struct rcu_head *rcu)
+  * This function is called when the reference count becomes zero.
+  * It just RCU schedules freeing up the fence.
+  */
+-static void amdgpu_fence_release(struct fence *f)
++static void amdgpu_fence_release(struct dma_fence *f)
+ {
+ 	call_rcu(&f->rcu, amdgpu_fence_free);
+ }
+ 
+-static const struct fence_ops amdgpu_fence_ops = {
++static const struct dma_fence_ops amdgpu_fence_ops = {
+ 	.get_driver_name = amdgpu_fence_get_driver_name,
+ 	.get_timeline_name = amdgpu_fence_get_timeline_name,
+ 	.enable_signaling = amdgpu_fence_enable_signaling,
+diff --git a/amd/amdgpu/amdgpu_gem.c b/amd/amdgpu/amdgpu_gem.c
+index bd9958c..b619129 100644
+--- a/amd/amdgpu/amdgpu_gem.c
++++ b/amd/amdgpu/amdgpu_gem.c
+@@ -868,7 +868,8 @@ int amdgpu_mode_dumb_create(struct drm_file *file_priv,
+ 	uint32_t handle;
+ 	int r;
+ 
+-	args->pitch = amdgpu_align_pitch(adev, args->width, args->bpp, 0) * ((args->bpp + 1) / 8);
++	args->pitch = amdgpu_align_pitch(adev, args->width,
++                                   DIV_ROUND_UP(args->bpp, 8), 0);
+ 	args->size = (u64)args->pitch * args->height;
+ 	args->size = ALIGN(args->size, PAGE_SIZE);
+ 
+diff --git a/amd/amdgpu/amdgpu_ib.c b/amd/amdgpu/amdgpu_ib.c
+index 0bbf31e..d0d6f21 100644
+--- a/amd/amdgpu/amdgpu_ib.c
++++ b/amd/amdgpu/amdgpu_ib.c
+@@ -89,7 +89,7 @@ int amdgpu_ib_get(struct amdgpu_device *adev, struct amdgpu_vm *vm,
+  * Free an IB (all asics).
+  */
+ void amdgpu_ib_free(struct amdgpu_device *adev, struct amdgpu_ib *ib,
+-		    struct fence *f)
++		    struct dma_fence *f)
+ {
+ 	amdgpu_sa_bo_free(adev, &ib->sa_bo, f);
+ }
+@@ -116,8 +116,8 @@ void amdgpu_ib_free(struct amdgpu_device *adev, struct amdgpu_ib *ib,
+  * to SI there was just a DE IB.
+  */
+ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
+-		       struct amdgpu_ib *ibs, struct fence *last_vm_update,
+-		       struct amdgpu_job *job, struct fence **f)
++		       struct amdgpu_ib *ibs, struct dma_fence *last_vm_update,
++		       struct amdgpu_job *job, struct dma_fence **f)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_ib *ib = &ibs[0];
+diff --git a/amd/amdgpu/amdgpu_job.c b/amd/amdgpu/amdgpu_job.c
+index 8c58079..a0de628 100644
+--- a/amd/amdgpu/amdgpu_job.c
++++ b/amd/amdgpu/amdgpu_job.c
+@@ -81,7 +81,7 @@ int amdgpu_job_alloc_with_ib(struct amdgpu_device *adev, unsigned size,
+ 
+ void amdgpu_job_free_resources(struct amdgpu_job *job)
+ {
+-	struct fence *f;
++	struct dma_fence *f;
+ 	unsigned i;
+ 
+ 	/* use sched fence if available */
+@@ -95,7 +95,7 @@ static void amdgpu_job_free_cb(struct amd_sched_job *s_job)
+ {
+ 	struct amdgpu_job *job = container_of(s_job, struct amdgpu_job, base);
+ 
+-	fence_put(job->fence);
++	dma_fence_put(job->fence);
+ 	amdgpu_sync_free(&job->sync);
+ 	kfree(job);
+ }
+@@ -104,14 +104,14 @@ void amdgpu_job_free(struct amdgpu_job *job)
+ {
+ 	amdgpu_job_free_resources(job);
+ 
+-	fence_put(job->fence);
++	dma_fence_put(job->fence);
+ 	amdgpu_sync_free(&job->sync);
+ 	kfree(job);
+ }
+ 
+ int amdgpu_job_submit(struct amdgpu_job *job, struct amdgpu_ring *ring,
+ 		      struct amd_sched_entity *entity, void *owner,
+-		      struct fence **f)
++		      struct dma_fence **f)
+ {
+ 	int r;
+ 	job->ring = ring;
+@@ -125,19 +125,19 @@ int amdgpu_job_submit(struct amdgpu_job *job, struct amdgpu_ring *ring,
+ 
+ 	job->owner = owner;
+ 	job->fence_ctx = entity->fence_context;
+-	*f = fence_get(&job->base.s_fence->finished);
++	*f = dma_fence_get(&job->base.s_fence->finished);
+ 	amdgpu_job_free_resources(job);
+ 	amd_sched_entity_push_job(&job->base);
+ 
+ 	return 0;
+ }
+ 
+-static struct fence *amdgpu_job_dependency(struct amd_sched_job *sched_job)
++static struct dma_fence *amdgpu_job_dependency(struct amd_sched_job *sched_job)
+ {
+ 	struct amdgpu_job *job = to_amdgpu_job(sched_job);
+ 	struct amdgpu_vm *vm = job->vm;
+ 
+-	struct fence *fence = amdgpu_sync_get_fence(&job->sync);
++	struct dma_fence *fence = amdgpu_sync_get_fence(&job->sync);
+ 
+ 	if (fence == NULL && vm && !job->vm_id) {
+ 		struct amdgpu_ring *ring = job->ring;
+@@ -155,9 +155,9 @@ static struct fence *amdgpu_job_dependency(struct amd_sched_job *sched_job)
+ 	return fence;
+ }
+ 
+-static struct fence *amdgpu_job_run(struct amd_sched_job *sched_job)
++static struct dma_fence *amdgpu_job_run(struct amd_sched_job *sched_job)
+ {
+-	struct fence *fence = NULL;
++	struct dma_fence *fence = NULL;
+ 	struct amdgpu_job *job;
+ 	int r;
+ 
+@@ -176,8 +176,8 @@ static struct fence *amdgpu_job_run(struct amd_sched_job *sched_job)
+ 		DRM_ERROR("Error scheduling IBs (%d)\n", r);
+ 
+ 	/* if gpu reset, hw fence will be replaced here */
+-	fence_put(job->fence);
+-	job->fence = fence_get(fence);
++	dma_fence_put(job->fence);
++	job->fence = dma_fence_get(fence);
+ 	amdgpu_job_free_resources(job);
+ 	return fence;
+ }
+diff --git a/amd/amdgpu/amdgpu_object.c b/amd/amdgpu/amdgpu_object.c
+index ed3ce7a..640797b 100644
+--- a/amd/amdgpu/amdgpu_object.c
++++ b/amd/amdgpu/amdgpu_object.c
+@@ -428,20 +428,20 @@ int amdgpu_bo_create_restricted(struct amdgpu_device *adev,
+ 
+ 	if (flags & AMDGPU_GEM_CREATE_VRAM_CLEARED &&
+ 	    bo->tbo.mem.placement & TTM_PL_FLAG_VRAM) {
+-		struct fence *fence;
++		struct dma_fence *fence;
+ 
+ 		r = amdgpu_fill_buffer(bo, 0, bo->tbo.resv, &fence);
+ 		if (unlikely(r))
+ 			goto fail_unreserve;
+ 
+ #if defined(BUILD_AS_DKMS)
+-		fence_wait(fence, false);
++		dma_fence_wait(fence, false);
+ #else
+ 		amdgpu_bo_fence(bo, fence, false);
+-		fence_put(bo->tbo.moving);
+-		bo->tbo.moving = fence_get(fence);
++		dma_fence_put(bo->tbo.moving);
++		bo->tbo.moving = dma_fence_get(fence);
+ #endif
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 	}
+ 	if (!resv)
+ 		ww_mutex_unlock(&bo->tbo.resv->lock);
+@@ -537,7 +537,7 @@ int amdgpu_bo_backup_to_shadow(struct amdgpu_device *adev,
+ 			       struct amdgpu_ring *ring,
+ 			       struct amdgpu_bo *bo,
+ 			       struct reservation_object *resv,
+-			       struct fence **fence,
++			       struct dma_fence **fence,
+ 			       bool direct)
+ 
+ {
+@@ -569,7 +569,7 @@ int amdgpu_bo_restore_from_shadow(struct amdgpu_device *adev,
+ 				  struct amdgpu_ring *ring,
+ 				  struct amdgpu_bo *bo,
+ 				  struct reservation_object *resv,
+-				  struct fence **fence,
++				  struct dma_fence **fence,
+ 				  bool direct)
+ 
+ {
+@@ -979,7 +979,7 @@ int amdgpu_bo_fault_reserve_notify(struct ttm_buffer_object *bo)
+  * @shared: true if fence should be added shared
+  *
+  */
+-void amdgpu_bo_fence(struct amdgpu_bo *bo, struct fence *fence,
++void amdgpu_bo_fence(struct amdgpu_bo *bo, struct dma_fence *fence,
+ 		     bool shared)
+ {
+ 	struct reservation_object *resv = bo->tbo.resv;
+diff --git a/amd/amdgpu/amdgpu_object.h b/amd/amdgpu/amdgpu_object.h
+index f365fb7..b48fa89 100644
+--- a/amd/amdgpu/amdgpu_object.h
++++ b/amd/amdgpu/amdgpu_object.h
+@@ -161,19 +161,19 @@ int amdgpu_bo_get_metadata(struct amdgpu_bo *bo, void *buffer,
+ void amdgpu_bo_move_notify(struct ttm_buffer_object *bo,
+ 				  struct ttm_mem_reg *new_mem);
+ int amdgpu_bo_fault_reserve_notify(struct ttm_buffer_object *bo);
+-void amdgpu_bo_fence(struct amdgpu_bo *bo, struct fence *fence,
++void amdgpu_bo_fence(struct amdgpu_bo *bo, struct dma_fence *fence,
+ 		     bool shared);
+ u64 amdgpu_bo_gpu_offset(struct amdgpu_bo *bo);
+ int amdgpu_bo_backup_to_shadow(struct amdgpu_device *adev,
+ 			       struct amdgpu_ring *ring,
+ 			       struct amdgpu_bo *bo,
+ 			       struct reservation_object *resv,
+-			       struct fence **fence, bool direct);
++			       struct dma_fence **fence, bool direct);
+ int amdgpu_bo_restore_from_shadow(struct amdgpu_device *adev,
+ 				  struct amdgpu_ring *ring,
+ 				  struct amdgpu_bo *bo,
+ 				  struct reservation_object *resv,
+-				  struct fence **fence,
++				  struct dma_fence **fence,
+ 				  bool direct);
+ 
+ 
+@@ -205,7 +205,7 @@ int amdgpu_sa_bo_new(struct amdgpu_sa_manager *sa_manager,
+ 		     unsigned size, unsigned align);
+ void amdgpu_sa_bo_free(struct amdgpu_device *adev,
+ 			      struct amdgpu_sa_bo **sa_bo,
+-			      struct fence *fence);
++			      struct dma_fence *fence);
+ #if defined(CONFIG_DEBUG_FS)
+ void amdgpu_sa_bo_dump_debug_info(struct amdgpu_sa_manager *sa_manager,
+ 					 struct seq_file *m);
+diff --git a/amd/amdgpu/amdgpu_ring.h b/amd/amdgpu/amdgpu_ring.h
+index 92bc89b..155dee3 100644
+--- a/amd/amdgpu/amdgpu_ring.h
++++ b/amd/amdgpu/amdgpu_ring.h
+@@ -68,7 +68,7 @@ struct amdgpu_fence_driver {
+ 	struct timer_list		fallback_timer;
+ 	unsigned			num_fences_mask;
+ 	spinlock_t			lock;
+-	struct fence			**fences;
++	struct dma_fence			**fences;
+ };
+ 
+ int amdgpu_fence_driver_init(struct amdgpu_device *adev);
+@@ -82,7 +82,7 @@ int amdgpu_fence_driver_start_ring(struct amdgpu_ring *ring,
+ 				   unsigned irq_type);
+ void amdgpu_fence_driver_suspend(struct amdgpu_device *adev);
+ void amdgpu_fence_driver_resume(struct amdgpu_device *adev);
+-int amdgpu_fence_emit(struct amdgpu_ring *ring, struct fence **fence);
++int amdgpu_fence_emit(struct amdgpu_ring *ring, struct dma_fence **fence);
+ void amdgpu_fence_process(struct amdgpu_ring *ring);
+ int amdgpu_fence_wait_empty(struct amdgpu_ring *ring);
+ unsigned amdgpu_fence_count_emitted(struct amdgpu_ring *ring);
+diff --git a/amd/amdgpu/amdgpu_sa.c b/amd/amdgpu/amdgpu_sa.c
+index 8c4b9f7..21bdc5b 100644
+--- a/amd/amdgpu/amdgpu_sa.c
++++ b/amd/amdgpu/amdgpu_sa.c
+@@ -147,7 +147,7 @@ static void amdgpu_sa_bo_remove_locked(struct amdgpu_sa_bo *sa_bo)
+ 	}
+ 	list_del_init(&sa_bo->olist);
+ 	list_del_init(&sa_bo->flist);
+-	fence_put(sa_bo->fence);
++	dma_fence_put(sa_bo->fence);
+ 	kfree(sa_bo);
+ }
+ 
+@@ -161,7 +161,7 @@ static void amdgpu_sa_bo_try_free(struct amdgpu_sa_manager *sa_manager)
+ 	sa_bo = list_entry(sa_manager->hole->next, struct amdgpu_sa_bo, olist);
+ 	list_for_each_entry_safe_from(sa_bo, tmp, &sa_manager->olist, olist) {
+ 		if (sa_bo->fence == NULL ||
+-		    !fence_is_signaled(sa_bo->fence)) {
++		    !dma_fence_is_signaled(sa_bo->fence)) {
+ 			return;
+ 		}
+ 		amdgpu_sa_bo_remove_locked(sa_bo);
+@@ -244,7 +244,7 @@ static bool amdgpu_sa_event(struct amdgpu_sa_manager *sa_manager,
+ }
+ 
+ static bool amdgpu_sa_bo_next_hole(struct amdgpu_sa_manager *sa_manager,
+-				   struct fence **fences,
++				   struct dma_fence **fences,
+ 				   unsigned *tries)
+ {
+ 	struct amdgpu_sa_bo *best_bo = NULL;
+@@ -272,7 +272,7 @@ static bool amdgpu_sa_bo_next_hole(struct amdgpu_sa_manager *sa_manager,
+ 		sa_bo = list_first_entry(&sa_manager->flist[i],
+ 					 struct amdgpu_sa_bo, flist);
+ 
+-		if (!fence_is_signaled(sa_bo->fence)) {
++		if (!dma_fence_is_signaled(sa_bo->fence)) {
+ 			fences[i] = sa_bo->fence;
+ 			continue;
+ 		}
+@@ -314,7 +314,7 @@ int amdgpu_sa_bo_new(struct amdgpu_sa_manager *sa_manager,
+ 		     struct amdgpu_sa_bo **sa_bo,
+ 		     unsigned size, unsigned align)
+ {
+-	struct fence *fences[AMDGPU_SA_NUM_FENCE_LISTS];
++	struct dma_fence *fences[AMDGPU_SA_NUM_FENCE_LISTS];
+ 	unsigned tries[AMDGPU_SA_NUM_FENCE_LISTS];
+ 	unsigned count;
+ 	int i, r;
+@@ -355,14 +355,14 @@ int amdgpu_sa_bo_new(struct amdgpu_sa_manager *sa_manager,
+ 
+ 		for (i = 0, count = 0; i < AMDGPU_SA_NUM_FENCE_LISTS; ++i)
+ 			if (fences[i])
+-				fences[count++] = fence_get(fences[i]);
++				fences[count++] = dma_fence_get(fences[i]);
+ 
+ 		if (count) {
+ 			spin_unlock(&sa_manager->wq.lock);
+ 			t = kcl_fence_wait_any_timeout(fences, count, false,
+ 						   MAX_SCHEDULE_TIMEOUT, NULL);
+ 			for (i = 0; i < count; ++i)
+-				fence_put(fences[i]);
++				dma_fence_put(fences[i]);
+ 
+ 			r = (t > 0) ? 0 : t;
+ 			spin_lock(&sa_manager->wq.lock);
+@@ -383,7 +383,7 @@ int amdgpu_sa_bo_new(struct amdgpu_sa_manager *sa_manager,
+ }
+ 
+ void amdgpu_sa_bo_free(struct amdgpu_device *adev, struct amdgpu_sa_bo **sa_bo,
+-		       struct fence *fence)
++		       struct dma_fence *fence)
+ {
+ 	struct amdgpu_sa_manager *sa_manager;
+ 
+@@ -393,10 +393,10 @@ void amdgpu_sa_bo_free(struct amdgpu_device *adev, struct amdgpu_sa_bo **sa_bo,
+ 
+ 	sa_manager = (*sa_bo)->manager;
+ 	spin_lock(&sa_manager->wq.lock);
+-	if (fence && !fence_is_signaled(fence)) {
++	if (fence && !dma_fence_is_signaled(fence)) {
+ 		uint32_t idx;
+ 
+-		(*sa_bo)->fence = fence_get(fence);
++		(*sa_bo)->fence = dma_fence_get(fence);
+ 		idx = fence->context % AMDGPU_SA_NUM_FENCE_LISTS;
+ 		list_add_tail(&(*sa_bo)->flist, &sa_manager->flist[idx]);
+ 	} else {
+diff --git a/amd/amdgpu/amdgpu_sem.c b/amd/amdgpu/amdgpu_sem.c
+index db16baa..9fae1ef 100644
+--- a/amd/amdgpu/amdgpu_sem.c
++++ b/amd/amdgpu/amdgpu_sem.c
+@@ -42,7 +42,7 @@ static int amdgpu_sem_cring_add(struct amdgpu_fpriv *fpriv,
+ 
+ static const struct file_operations amdgpu_sem_fops;
+ 
+-static struct amdgpu_sem *amdgpu_sem_alloc(struct fence *fence)
++static struct amdgpu_sem *amdgpu_sem_alloc(struct dma_fence *fence)
+ {
+ 	struct amdgpu_sem *sem;
+ 
+@@ -72,7 +72,7 @@ static void amdgpu_sem_free(struct kref *kref)
+ 	struct amdgpu_sem *sem = container_of(
+ 		kref, struct amdgpu_sem, kref);
+ 
+-	fence_put(sem->fence);
++	dma_fence_put(sem->fence);
+ 	kfree(sem);
+ }
+ 
+@@ -107,7 +107,7 @@ static int amdgpu_sem_create(void)
+ 	return get_unused_fd_flags(O_CLOEXEC);
+ }
+ 
+-static int amdgpu_sem_signal(int fd, struct fence *fence)
++static int amdgpu_sem_signal(int fd, struct dma_fence *fence)
+ {
+ 	struct amdgpu_sem *sem;
+ 
+@@ -147,12 +147,12 @@ static void amdgpu_sem_destroy(void)
+ 	 */
+ }
+ 
+-static struct fence *amdgpu_sem_get_fence(struct amdgpu_fpriv *fpriv,
++static struct dma_fence *amdgpu_sem_get_fence(struct amdgpu_fpriv *fpriv,
+ 					 struct drm_amdgpu_sem_in *in)
+ {
+ 	struct amdgpu_ring *out_ring;
+ 	struct amdgpu_ctx *ctx;
+-	struct fence *fence;
++	struct dma_fence *fence;
+ 	uint32_t ctx_id, ip_type, ip_instance, ring;
+ 	int r;
+ 
+@@ -220,7 +220,7 @@ int amdgpu_sem_add_cs(struct amdgpu_ctx *ctx, struct amdgpu_ring *ring,
+ 	list_for_each_entry_safe(sem, tmp, &ctx->rings[ring->idx].sem_list,
+ 				 list) {
+ 		r = amdgpu_sync_fence(ctx->adev, sync, sem->fence);
+-		fence_put(sem->fence);
++		dma_fence_put(sem->fence);
+ 		if (r)
+ 			goto err;
+ 		list_del(&sem->list);
+@@ -236,7 +236,7 @@ int amdgpu_sem_ioctl(struct drm_device *dev, void *data,
+ {
+ 	union drm_amdgpu_sem *args = data;
+ 	struct amdgpu_fpriv *fpriv = filp->driver_priv;
+-	struct fence *fence;
++	struct dma_fence *fence;
+ 	int r = 0;
+ 	int fd = args->in.fd;
+ 
+@@ -254,7 +254,7 @@ int amdgpu_sem_ioctl(struct drm_device *dev, void *data,
+ 			return r;
+ 		}
+ 		r = amdgpu_sem_signal(fd, fence);
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 		break;
+ 	case AMDGPU_SEM_OP_DESTROY_SEM:
+ 		amdgpu_sem_destroy();
+diff --git a/amd/amdgpu/amdgpu_sem.h b/amd/amdgpu/amdgpu_sem.h
+index 56d59d3..c9b0c51 100644
+--- a/amd/amdgpu/amdgpu_sem.h
++++ b/amd/amdgpu/amdgpu_sem.h
+@@ -32,12 +32,12 @@
+ #include <linux/ktime.h>
+ #include <linux/list.h>
+ #include <linux/spinlock.h>
+-#include <linux/fence.h>
++#include <linux/dma-fence.h>
+ 
+ struct amdgpu_sem {
+ 	struct file		*file;
+ 	struct kref		kref;
+-	struct fence            *fence;
++	struct dma_fence            *fence;
+ 	struct list_head        list;
+ };
+ 
+diff --git a/amd/amdgpu/amdgpu_sync.c b/amd/amdgpu/amdgpu_sync.c
+index 10a144d..6f1fd16 100644
+--- a/amd/amdgpu/amdgpu_sync.c
++++ b/amd/amdgpu/amdgpu_sync.c
+@@ -34,7 +34,7 @@
+ 
+ struct amdgpu_sync_entry {
+ 	struct hlist_node	node;
+-	struct fence		*fence;
++	struct dma_fence		*fence;
+ };
+ 
+ static struct kmem_cache *amdgpu_sync_slab;
+@@ -60,7 +60,8 @@ void amdgpu_sync_create(struct amdgpu_sync *sync)
+  *
+  * Test if the fence was issued by us.
+  */
+-static bool amdgpu_sync_same_dev(struct amdgpu_device *adev, struct fence *f)
++static bool amdgpu_sync_same_dev(struct amdgpu_device *adev,
++				 struct dma_fence *f)
+ {
+ 	struct amd_sched_fence *s_fence = to_amd_sched_fence(f);
+ 
+@@ -81,7 +82,7 @@ static bool amdgpu_sync_same_dev(struct amdgpu_device *adev, struct fence *f)
+  *
+  * Extract who originally created the fence.
+  */
+-static void *amdgpu_sync_get_owner(struct fence *f)
++static void *amdgpu_sync_get_owner(struct dma_fence *f)
+ {
+ 	struct amd_sched_fence *s_fence = to_amd_sched_fence(f);
+ 
+@@ -99,13 +100,14 @@ static void *amdgpu_sync_get_owner(struct fence *f)
+  *
+  * Either keep the existing fence or the new one, depending which one is later.
+  */
+-static void amdgpu_sync_keep_later(struct fence **keep, struct fence *fence)
++static void amdgpu_sync_keep_later(struct dma_fence **keep,
++				   struct dma_fence *fence)
+ {
+-	if (*keep && fence_is_later(*keep, fence))
++	if (*keep && dma_fence_is_later(*keep, fence))
+ 		return;
+ 
+-	fence_put(*keep);
+-	*keep = fence_get(fence);
++	dma_fence_put(*keep);
++	*keep = dma_fence_get(fence);
+ }
+ 
+ /**
+@@ -117,7 +119,8 @@ static void amdgpu_sync_keep_later(struct fence **keep, struct fence *fence)
+  * Tries to add the fence to an existing hash entry. Returns true when an entry
+  * was found, false otherwise.
+  */
+-static bool amdgpu_sync_add_later(struct amdgpu_sync *sync, struct fence *f)
++static bool amdgpu_sync_add_later(struct amdgpu_sync *sync,
++				  struct dma_fence *f)
+ {
+ 	struct amdgpu_sync_entry *e;
+ 
+@@ -145,7 +148,7 @@ static bool amdgpu_sync_add_later(struct amdgpu_sync *sync, struct fence *f)
+  *
+  */
+ int amdgpu_sync_fence(struct amdgpu_device *adev, struct amdgpu_sync *sync,
+-		      struct fence *f)
++		      struct dma_fence *f)
+ {
+ 	struct amdgpu_sync_entry *e;
+ 
+@@ -164,7 +167,7 @@ int amdgpu_sync_fence(struct amdgpu_device *adev, struct amdgpu_sync *sync,
+ 		return -ENOMEM;
+ 
+ 	hash_add(sync->fences, &e->node, f->context);
+-	e->fence = fence_get(f);
++	e->fence = dma_fence_get(f);
+ 	return 0;
+ }
+ 
+@@ -183,7 +186,7 @@ int amdgpu_sync_resv(struct amdgpu_device *adev,
+ 		     void *owner)
+ {
+ 	struct reservation_object_list *flist;
+-	struct fence *f;
++	struct dma_fence *f;
+ 	void *fence_owner;
+ 	unsigned i;
+ 	int r = 0;
+@@ -237,7 +240,7 @@ int amdgpu_sync_resv(struct amdgpu_device *adev,
+  * Returns the next fence not signaled yet without removing it from the sync
+  * object.
+  */
+-struct fence *amdgpu_sync_peek_fence(struct amdgpu_sync *sync,
++struct dma_fence *amdgpu_sync_peek_fence(struct amdgpu_sync *sync,
+ 				     struct amdgpu_ring *ring)
+ {
+ 	struct amdgpu_sync_entry *e;
+@@ -251,7 +254,7 @@ struct fence *amdgpu_sync_peek_fence(struct amdgpu_sync *sync,
+ #else
+ 	hash_for_each_safe(sync->fences, i, tmp, e, node) {
+ #endif
+-		struct fence *f = e->fence;
++		struct dma_fence *f = e->fence;
+ 		struct amd_sched_fence *s_fence = to_amd_sched_fence(f);
+ 
+ 		if (ring && s_fence) {
+@@ -259,16 +262,16 @@ struct fence *amdgpu_sync_peek_fence(struct amdgpu_sync *sync,
+ 			 * when they are scheduled.
+ 			 */
+ 			if (s_fence->sched == &ring->sched) {
+-				if (fence_is_signaled(&s_fence->scheduled))
++				if (dma_fence_is_signaled(&s_fence->scheduled))
+ 					continue;
+ 
+ 				return &s_fence->scheduled;
+ 			}
+ 		}
+ 
+-		if (fence_is_signaled(f)) {
++		if (dma_fence_is_signaled(f)) {
+ 			hash_del(&e->node);
+-			fence_put(f);
++			dma_fence_put(f);
+ 			kmem_cache_free(amdgpu_sync_slab, e);
+ 			continue;
+ 		}
+@@ -286,11 +289,11 @@ struct fence *amdgpu_sync_peek_fence(struct amdgpu_sync *sync,
+  *
+  * Get and removes the next fence from the sync object not signaled yet.
+  */
+-struct fence *amdgpu_sync_get_fence(struct amdgpu_sync *sync)
++struct dma_fence *amdgpu_sync_get_fence(struct amdgpu_sync *sync)
+ {
+ 	struct amdgpu_sync_entry *e;
+ 	struct hlist_node *tmp;
+-	struct fence *f;
++	struct dma_fence *f;
+ 	int i;
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0)
+ 	struct hlist_node *node;
+@@ -305,10 +308,10 @@ struct fence *amdgpu_sync_get_fence(struct amdgpu_sync *sync)
+ 		hash_del(&e->node);
+ 		kmem_cache_free(amdgpu_sync_slab, e);
+ 
+-		if (!fence_is_signaled(f))
++		if (!dma_fence_is_signaled(f))
+ 			return f;
+ 
+-		fence_put(f);
++		dma_fence_put(f);
+ 	}
+ 	return NULL;
+ }
+@@ -325,12 +328,12 @@ int amdgpu_sync_wait(struct amdgpu_sync *sync)
+ #else
+ 	hash_for_each_safe(sync->fences, i, tmp, e, node) {
+ #endif
+-		r = fence_wait(e->fence, false);
++		r = dma_fence_wait(e->fence, false);
+ 		if (r)
+ 			return r;
+ 
+ 		hash_del(&e->node);
+-		fence_put(e->fence);
++		dma_fence_put(e->fence);
+ 		kmem_cache_free(amdgpu_sync_slab, e);
+ 	}
+ 
+@@ -357,11 +360,11 @@ void amdgpu_sync_free(struct amdgpu_sync *sync)
+ 	hash_for_each_safe(sync->fences, i, tmp, e, node) {
+ #endif
+ 		hash_del(&e->node);
+-		fence_put(e->fence);
++		dma_fence_put(e->fence);
+ 		kmem_cache_free(amdgpu_sync_slab, e);
+ 	}
+ 
+-	fence_put(sync->last_vm_update);
++	dma_fence_put(sync->last_vm_update);
+ }
+ 
+ /**
+diff --git a/amd/amdgpu/amdgpu_sync.h b/amd/amdgpu/amdgpu_sync.h
+index 405f379..605be26 100644
+--- a/amd/amdgpu/amdgpu_sync.h
++++ b/amd/amdgpu/amdgpu_sync.h
+@@ -26,7 +26,7 @@
+ 
+ #include <linux/hashtable.h>
+ 
+-struct fence;
++struct dma_fence;
+ struct reservation_object;
+ struct amdgpu_device;
+ struct amdgpu_ring;
+@@ -36,19 +36,19 @@ struct amdgpu_ring;
+  */
+ struct amdgpu_sync {
+ 	DECLARE_HASHTABLE(fences, 4);
+-	struct fence	*last_vm_update;
++	struct dma_fence	*last_vm_update;
+ };
+ 
+ void amdgpu_sync_create(struct amdgpu_sync *sync);
+ int amdgpu_sync_fence(struct amdgpu_device *adev, struct amdgpu_sync *sync,
+-		      struct fence *f);
++		      struct dma_fence *f);
+ int amdgpu_sync_resv(struct amdgpu_device *adev,
+ 		     struct amdgpu_sync *sync,
+ 		     struct reservation_object *resv,
+ 		     void *owner);
+-struct fence *amdgpu_sync_peek_fence(struct amdgpu_sync *sync,
++struct dma_fence *amdgpu_sync_peek_fence(struct amdgpu_sync *sync,
+ 				     struct amdgpu_ring *ring);
+-struct fence *amdgpu_sync_get_fence(struct amdgpu_sync *sync);
++struct dma_fence *amdgpu_sync_get_fence(struct amdgpu_sync *sync);
+ void amdgpu_sync_free(struct amdgpu_sync *sync);
+ int amdgpu_sync_init(void);
+ void amdgpu_sync_fini(void);
+diff --git a/amd/amdgpu/amdgpu_test.c b/amd/amdgpu/amdgpu_test.c
+index b827c75..e05a243 100644
+--- a/amd/amdgpu/amdgpu_test.c
++++ b/amd/amdgpu/amdgpu_test.c
+@@ -78,7 +78,7 @@ static void amdgpu_do_test_moves(struct amdgpu_device *adev)
+ 		void *gtt_map, *vram_map;
+ 		void **gtt_start, **gtt_end;
+ 		void **vram_start, **vram_end;
+-		struct fence *fence = NULL;
++		struct dma_fence *fence = NULL;
+ 
+ 		r = amdgpu_bo_create(adev, size, PAGE_SIZE, true,
+ 				     AMDGPU_GEM_DOMAIN_GTT, 0, NULL,
+@@ -118,13 +118,13 @@ static void amdgpu_do_test_moves(struct amdgpu_device *adev)
+ 			goto out_lclean_unpin;
+ 		}
+ 
+-		r = fence_wait(fence, false);
++		r = dma_fence_wait(fence, false);
+ 		if (r) {
+ 			DRM_ERROR("Failed to wait for GTT->VRAM fence %d\n", i);
+ 			goto out_lclean_unpin;
+ 		}
+ 
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 
+ 		r = amdgpu_bo_kmap(vram_obj, &vram_map);
+ 		if (r) {
+@@ -163,13 +163,13 @@ static void amdgpu_do_test_moves(struct amdgpu_device *adev)
+ 			goto out_lclean_unpin;
+ 		}
+ 
+-		r = fence_wait(fence, false);
++		r = dma_fence_wait(fence, false);
+ 		if (r) {
+ 			DRM_ERROR("Failed to wait for VRAM->GTT fence %d\n", i);
+ 			goto out_lclean_unpin;
+ 		}
+ 
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 
+ 		r = amdgpu_bo_kmap(gtt_obj[i], &gtt_map);
+ 		if (r) {
+@@ -216,7 +216,7 @@ out_lclean:
+ 			amdgpu_bo_unref(&gtt_obj[i]);
+ 		}
+ 		if (fence)
+-			fence_put(fence);
++			dma_fence_put(fence);
+ 		break;
+ 	}
+ 
+diff --git a/amd/amdgpu/amdgpu_trace.h b/amd/amdgpu/amdgpu_trace.h
+index 067e5e6..bb964a8 100644
+--- a/amd/amdgpu/amdgpu_trace.h
++++ b/amd/amdgpu/amdgpu_trace.h
+@@ -104,7 +104,7 @@ TRACE_EVENT(amdgpu_cs_ioctl,
+ 			     __field(struct amdgpu_device *, adev)
+ 			     __field(struct amd_sched_job *, sched_job)
+ 			     __field(struct amdgpu_ib *, ib)
+-			     __field(struct fence *, fence)
++			     __field(struct dma_fence *, fence)
+ 			     __field(char *, ring_name)
+ 			     __field(u32, num_ibs)
+ 			     ),
+@@ -129,7 +129,7 @@ TRACE_EVENT(amdgpu_sched_run_job,
+ 			     __field(struct amdgpu_device *, adev)
+ 			     __field(struct amd_sched_job *, sched_job)
+ 			     __field(struct amdgpu_ib *, ib)
+-			     __field(struct fence *, fence)
++			     __field(struct dma_fence *, fence)
+ 			     __field(char *, ring_name)
+ 			     __field(u32, num_ibs)
+ 			     ),
+diff --git a/amd/amdgpu/amdgpu_ttm.c b/amd/amdgpu/amdgpu_ttm.c
+index 90f3655..a6122c9 100644
+--- a/amd/amdgpu/amdgpu_ttm.c
++++ b/amd/amdgpu/amdgpu_ttm.c
+@@ -310,7 +310,7 @@ static int amdgpu_move_blit(struct ttm_buffer_object *bo,
+ 	struct drm_mm_node *old_mm, *new_mm;
+ 	uint64_t old_start, old_size, new_start, new_size;
+ 	unsigned long num_pages;
+-	struct fence *fence = NULL;
++	struct dma_fence *fence = NULL;
+ 	int r;
+ 
+ 	BUILD_BUG_ON((PAGE_SIZE % AMDGPU_GPU_PAGE_SIZE) != 0);
+@@ -336,7 +336,7 @@ static int amdgpu_move_blit(struct ttm_buffer_object *bo,
+ 	num_pages = new_mem->num_pages;
+ 	while (num_pages) {
+ 		unsigned long cur_pages = min(old_size, new_size);
+-		struct fence *next;
++		struct dma_fence *next;
+ 
+ 		r = amdgpu_copy_buffer(ring, old_start, new_start,
+ 				       cur_pages * PAGE_SIZE,
+@@ -344,7 +344,7 @@ static int amdgpu_move_blit(struct ttm_buffer_object *bo,
+ 		if (r)
+ 			goto error;
+ 
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 		fence = next;
+ 
+ 		num_pages -= cur_pages;
+@@ -376,13 +376,13 @@ static int amdgpu_move_blit(struct ttm_buffer_object *bo,
+ 	}
+ 
+ 	r = ttm_bo_pipeline_move(bo, fence, evict, new_mem);
+-	fence_put(fence);
++	dma_fence_put(fence);
+ 	return r;
+ 
+ error:
+ 	if (fence)
+-		fence_wait(fence, false);
+-	fence_put(fence);
++		dma_fence_wait(fence, false);
++	dma_fence_put(fence);
+ 	return r;
+ }
+ 
+@@ -1429,7 +1429,7 @@ int amdgpu_copy_buffer(struct amdgpu_ring *ring,
+ 		       uint64_t dst_offset,
+ 		       uint32_t byte_count,
+ 		       struct reservation_object *resv,
+-		       struct fence **fence, bool direct_submit)
++		       struct dma_fence **fence, bool direct_submit)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_job *job;
+@@ -1476,7 +1476,7 @@ int amdgpu_copy_buffer(struct amdgpu_ring *ring,
+ 	if (direct_submit) {
+ 		r = amdgpu_ib_schedule(ring, job->num_ibs, job->ibs,
+ 				       NULL, NULL, fence);
+-		job->fence = fence_get(*fence);
++		job->fence = dma_fence_get(*fence);
+ 		if (r)
+ 			DRM_ERROR("Error scheduling IBs (%d)\n", r);
+ 		amdgpu_job_free(job);
+@@ -1496,7 +1496,7 @@ error_free:
+ 
+ int amdgpu_fill_buffer(struct amdgpu_bo *bo, uint32_t src_data,
+ 		       struct reservation_object *resv,
+-		       struct fence **fence)
++		       struct dma_fence **fence)
+ {
+ 	struct amdgpu_device *adev = amdgpu_ttm_adev(bo->tbo.bdev);
+ 	uint32_t max_bytes = adev->mman.buffer_funcs->fill_max_bytes;
+diff --git a/amd/amdgpu/amdgpu_ttm.h b/amd/amdgpu/amdgpu_ttm.h
+index 4926bc7..efec427 100644
+--- a/amd/amdgpu/amdgpu_ttm.h
++++ b/amd/amdgpu/amdgpu_ttm.h
+@@ -82,11 +82,11 @@ int amdgpu_copy_buffer(struct amdgpu_ring *ring,
+ 		       uint64_t dst_offset,
+ 		       uint32_t byte_count,
+ 		       struct reservation_object *resv,
+-		       struct fence **fence, bool direct_submit);
++		       struct dma_fence **fence, bool direct_submit);
+ int amdgpu_fill_buffer(struct amdgpu_bo *bo,
+ 			uint32_t src_data,
+ 			struct reservation_object *resv,
+-			struct fence **fence);
++			struct dma_fence **fence);
+ 
+ int amdgpu_mmap(struct file *filp, struct vm_area_struct *vma);
+ bool amdgpu_ttm_is_bound(struct ttm_tt *ttm);
+diff --git a/amd/amdgpu/amdgpu_uvd.c b/amd/amdgpu/amdgpu_uvd.c
+index a8816ba..a81dfae 100644
+--- a/amd/amdgpu/amdgpu_uvd.c
++++ b/amd/amdgpu/amdgpu_uvd.c
+@@ -333,7 +333,7 @@ void amdgpu_uvd_free_handles(struct amdgpu_device *adev, struct drm_file *filp)
+ 	for (i = 0; i < adev->uvd.max_handles; ++i) {
+ 		uint32_t handle = atomic_read(&adev->uvd.handles[i]);
+ 		if (handle != 0 && adev->uvd.filp[i] == filp) {
+-			struct fence *fence;
++			struct dma_fence *fence;
+ 
+ 			r = amdgpu_uvd_get_destroy_msg(ring, handle,
+ 						       false, &fence);
+@@ -342,8 +342,8 @@ void amdgpu_uvd_free_handles(struct amdgpu_device *adev, struct drm_file *filp)
+ 				continue;
+ 			}
+ 
+-			fence_wait(fence, false);
+-			fence_put(fence);
++			dma_fence_wait(fence, false);
++			dma_fence_put(fence);
+ 
+ 			adev->uvd.filp[i] = NULL;
+ 			atomic_set(&adev->uvd.handles[i], 0);
+@@ -921,14 +921,14 @@ int amdgpu_uvd_ring_parse_cs(struct amdgpu_cs_parser *parser, uint32_t ib_idx)
+ }
+ 
+ static int amdgpu_uvd_send_msg(struct amdgpu_ring *ring, struct amdgpu_bo *bo,
+-			       bool direct, struct fence **fence)
++			       bool direct, struct dma_fence **fence)
+ {
+ 	struct ttm_validate_buffer tv;
+ 	struct ww_acquire_ctx ticket;
+ 	struct list_head head;
+ 	struct amdgpu_job *job;
+ 	struct amdgpu_ib *ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	struct amdgpu_device *adev = ring->adev;
+ 	uint64_t addr;
+ 	int i, r;
+@@ -972,7 +972,7 @@ static int amdgpu_uvd_send_msg(struct amdgpu_ring *ring, struct amdgpu_bo *bo,
+ 
+ 	if (direct) {
+ 		r = amdgpu_ib_schedule(ring, 1, ib, NULL, NULL, &f);
+-		job->fence = fence_get(f);
++		job->fence = dma_fence_get(f);
+ 		if (r)
+ 			goto err_free;
+ 
+@@ -987,9 +987,9 @@ static int amdgpu_uvd_send_msg(struct amdgpu_ring *ring, struct amdgpu_bo *bo,
+ 	ttm_eu_fence_buffer_objects(&ticket, &head, f);
+ 
+ 	if (fence)
+-		*fence = fence_get(f);
++		*fence = dma_fence_get(f);
+ 	amdgpu_bo_unref(&bo);
+-	fence_put(f);
++	dma_fence_put(f);
+ 
+ 	return 0;
+ 
+@@ -1005,7 +1005,7 @@ err:
+    crash the vcpu so just try to emmit a dummy create/destroy msg to
+    avoid this */
+ int amdgpu_uvd_get_create_msg(struct amdgpu_ring *ring, uint32_t handle,
+-			      struct fence **fence)
++			      struct dma_fence **fence)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_bo *bo;
+@@ -1055,7 +1055,7 @@ int amdgpu_uvd_get_create_msg(struct amdgpu_ring *ring, uint32_t handle,
+ }
+ 
+ int amdgpu_uvd_get_destroy_msg(struct amdgpu_ring *ring, uint32_t handle,
+-			       bool direct, struct fence **fence)
++			       bool direct, struct dma_fence **fence)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_bo *bo;
+@@ -1142,7 +1142,7 @@ void amdgpu_uvd_ring_end_use(struct amdgpu_ring *ring)
+  */
+ int amdgpu_uvd_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ {
+-	struct fence *fence;
++	struct dma_fence *fence;
+ 	long r;
+ 
+ 	r = amdgpu_uvd_get_create_msg(ring, 1, NULL);
+@@ -1157,7 +1157,7 @@ int amdgpu_uvd_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 		goto error;
+ 	}
+ 
+-	r = fence_wait_timeout(fence, false, timeout);
++	r = dma_fence_wait_timeout(fence, false, timeout);
+ 	if (r == 0) {
+ 		DRM_ERROR("amdgpu: IB test timed out.\n");
+ 		r = -ETIMEDOUT;
+@@ -1168,7 +1168,7 @@ int amdgpu_uvd_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 		r = 0;
+ 	}
+ 
+-	fence_put(fence);
++	dma_fence_put(fence);
+ 
+ error:
+ 	return r;
+diff --git a/amd/amdgpu/amdgpu_uvd.h b/amd/amdgpu/amdgpu_uvd.h
+index c850009..6249ba1 100644
+--- a/amd/amdgpu/amdgpu_uvd.h
++++ b/amd/amdgpu/amdgpu_uvd.h
+@@ -29,9 +29,9 @@ int amdgpu_uvd_sw_fini(struct amdgpu_device *adev);
+ int amdgpu_uvd_suspend(struct amdgpu_device *adev);
+ int amdgpu_uvd_resume(struct amdgpu_device *adev);
+ int amdgpu_uvd_get_create_msg(struct amdgpu_ring *ring, uint32_t handle,
+-			      struct fence **fence);
++			      struct dma_fence **fence);
+ int amdgpu_uvd_get_destroy_msg(struct amdgpu_ring *ring, uint32_t handle,
+-			       bool direct, struct fence **fence);
++			       bool direct, struct dma_fence **fence);
+ void amdgpu_uvd_free_handles(struct amdgpu_device *adev,
+ 			     struct drm_file *filp);
+ int amdgpu_uvd_ring_parse_cs(struct amdgpu_cs_parser *parser, uint32_t ib_idx);
+diff --git a/amd/amdgpu/amdgpu_vce.c b/amd/amdgpu/amdgpu_vce.c
+index 3d6f86c..69b66b9 100644
+--- a/amd/amdgpu/amdgpu_vce.c
++++ b/amd/amdgpu/amdgpu_vce.c
+@@ -396,12 +396,12 @@ void amdgpu_vce_free_handles(struct amdgpu_device *adev, struct drm_file *filp)
+  * Open up a stream for HW test
+  */
+ int amdgpu_vce_get_create_msg(struct amdgpu_ring *ring, uint32_t handle,
+-			      struct fence **fence)
++			      struct dma_fence **fence)
+ {
+ 	const unsigned ib_size_dw = 1024;
+ 	struct amdgpu_job *job;
+ 	struct amdgpu_ib *ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	uint64_t dummy;
+ 	int i, r;
+ 
+@@ -451,14 +451,14 @@ int amdgpu_vce_get_create_msg(struct amdgpu_ring *ring, uint32_t handle,
+ 		ib->ptr[i] = 0x0;
+ 
+ 	r = amdgpu_ib_schedule(ring, 1, ib, NULL, NULL, &f);
+-	job->fence = fence_get(f);
++	job->fence = dma_fence_get(f);
+ 	if (r)
+ 		goto err;
+ 
+ 	amdgpu_job_free(job);
+ 	if (fence)
+-		*fence = fence_get(f);
+-	fence_put(f);
++		*fence = dma_fence_get(f);
++	dma_fence_put(f);
+ 	return 0;
+ 
+ err:
+@@ -477,12 +477,12 @@ err:
+  * Close up a stream for HW test or if userspace failed to do so
+  */
+ int amdgpu_vce_get_destroy_msg(struct amdgpu_ring *ring, uint32_t handle,
+-			       bool direct, struct fence **fence)
++			       bool direct, struct dma_fence **fence)
+ {
+ 	const unsigned ib_size_dw = 1024;
+ 	struct amdgpu_job *job;
+ 	struct amdgpu_ib *ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	int i, r;
+ 
+ 	r = amdgpu_job_alloc_with_ib(ring->adev, ib_size_dw * 4, &job);
+@@ -514,7 +514,7 @@ int amdgpu_vce_get_destroy_msg(struct amdgpu_ring *ring, uint32_t handle,
+ 
+ 	if (direct) {
+ 		r = amdgpu_ib_schedule(ring, 1, ib, NULL, NULL, &f);
+-		job->fence = fence_get(f);
++		job->fence = dma_fence_get(f);
+ 		if (r)
+ 			goto err;
+ 
+@@ -527,8 +527,8 @@ int amdgpu_vce_get_destroy_msg(struct amdgpu_ring *ring, uint32_t handle,
+ 	}
+ 
+ 	if (fence)
+-		*fence = fence_get(f);
+-	fence_put(f);
++		*fence = dma_fence_get(f);
++	dma_fence_put(f);
+ 	return 0;
+ 
+ err:
+@@ -965,7 +965,7 @@ int amdgpu_vce_ring_test_ring(struct amdgpu_ring *ring)
+  */
+ int amdgpu_vce_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ {
+-	struct fence *fence = NULL;
++	struct dma_fence *fence = NULL;
+ 	long r;
+ 
+ 	/* skip vce ring1/2 ib test for now, since it's not reliable */
+@@ -984,7 +984,7 @@ int amdgpu_vce_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 		goto error;
+ 	}
+ 
+-	r = fence_wait_timeout(fence, false, timeout);
++	r = dma_fence_wait_timeout(fence, false, timeout);
+ 	if (r == 0) {
+ 		DRM_ERROR("amdgpu: IB test timed out.\n");
+ 		r = -ETIMEDOUT;
+@@ -995,6 +995,6 @@ int amdgpu_vce_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 		r = 0;
+ 	}
+ error:
+-	fence_put(fence);
++	dma_fence_put(fence);
+ 	return r;
+ }
+diff --git a/amd/amdgpu/amdgpu_vce.h b/amd/amdgpu/amdgpu_vce.h
+index 44d49b5..d98041f 100644
+--- a/amd/amdgpu/amdgpu_vce.h
++++ b/amd/amdgpu/amdgpu_vce.h
+@@ -29,9 +29,9 @@ int amdgpu_vce_sw_fini(struct amdgpu_device *adev);
+ int amdgpu_vce_suspend(struct amdgpu_device *adev);
+ int amdgpu_vce_resume(struct amdgpu_device *adev);
+ int amdgpu_vce_get_create_msg(struct amdgpu_ring *ring, uint32_t handle,
+-			      struct fence **fence);
++			      struct dma_fence **fence);
+ int amdgpu_vce_get_destroy_msg(struct amdgpu_ring *ring, uint32_t handle,
+-			       bool direct, struct fence **fence);
++			       bool direct, struct dma_fence **fence);
+ void amdgpu_vce_free_handles(struct amdgpu_device *adev, struct drm_file *filp);
+ int amdgpu_vce_ring_parse_cs(struct amdgpu_cs_parser *p, uint32_t ib_idx);
+ int amdgpu_vce_ring_parse_cs_vm(struct amdgpu_cs_parser *p, uint32_t ib_idx);
+diff --git a/amd/amdgpu/amdgpu_vm.c b/amd/amdgpu/amdgpu_vm.c
+index 945948b..11ddeed 100644
+--- a/amd/amdgpu/amdgpu_vm.c
++++ b/amd/amdgpu/amdgpu_vm.c
+@@ -28,7 +28,7 @@
+ #if defined(BUILD_AS_DKMS)
+ #include <kcl/kcl_fence_array.h>
+ #else
+-#include <linux/fence-array.h>
++#include <linux/dma-fence-array.h>
+ #endif
+ #include <drm/drmP.h>
+ #include <drm/amdgpu_drm.h>
+@@ -203,14 +203,14 @@ static bool amdgpu_vm_is_gpu_reset(struct amdgpu_device *adev,
+  * Allocate an id for the vm, adding fences to the sync obj as necessary.
+  */
+ int amdgpu_vm_grab_id(struct amdgpu_vm *vm, struct amdgpu_ring *ring,
+-		      struct amdgpu_sync *sync, struct fence *fence,
++		      struct amdgpu_sync *sync, struct dma_fence *fence,
+ 		      struct amdgpu_job *job)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	uint64_t fence_context = adev->fence_context + ring->idx;
+-	struct fence *updates = sync->last_vm_update;
++	struct dma_fence *updates = sync->last_vm_update;
+ 	struct amdgpu_vm_id *id, *idle;
+-	struct fence **fences;
++	struct dma_fence **fences;
+ 	unsigned i;
+ 	int r = 0;
+ 
+@@ -234,17 +234,17 @@ int amdgpu_vm_grab_id(struct amdgpu_vm *vm, struct amdgpu_ring *ring,
+ 	if (&idle->list == &adev->vm_manager.ids_lru) {
+ 		u64 fence_context = adev->vm_manager.fence_context + ring->idx;
+ 		unsigned seqno = ++adev->vm_manager.seqno[ring->idx];
+-		struct fence_array *array;
++		struct dma_fence_array *array;
+ 		unsigned j;
+ 
+ 		for (j = 0; j < i; ++j)
+-			fence_get(fences[j]);
++			dma_fence_get(fences[j]);
+ 
+-		array = fence_array_create(i, fences, fence_context,
++		array = dma_fence_array_create(i, fences, fence_context,
+ 					   seqno, true);
+ 		if (!array) {
+ 			for (j = 0; j < i; ++j)
+-				fence_put(fences[j]);
++				dma_fence_put(fences[j]);
+ 			kfree(fences);
+ 			r = -ENOMEM;
+ 			goto error;
+@@ -252,7 +252,7 @@ int amdgpu_vm_grab_id(struct amdgpu_vm *vm, struct amdgpu_ring *ring,
+ 
+ 
+ 		r = amdgpu_sync_fence(ring->adev, sync, &array->base);
+-		fence_put(&array->base);
++		dma_fence_put(&array->base);
+ 		if (r)
+ 			goto error;
+ 
+@@ -266,7 +266,7 @@ int amdgpu_vm_grab_id(struct amdgpu_vm *vm, struct amdgpu_ring *ring,
+ 	/* Check if we can use a VMID already assigned to this VM */
+ 	i = ring->idx;
+ 	do {
+-		struct fence *flushed;
++		struct dma_fence *flushed;
+ 
+ 		id = vm->ids[i++];
+ 		if (i == AMDGPU_MAX_RINGS)
+@@ -288,12 +288,12 @@ int amdgpu_vm_grab_id(struct amdgpu_vm *vm, struct amdgpu_ring *ring,
+ 			continue;
+ 
+ 		if (id->last_flush->context != fence_context &&
+-		    !fence_is_signaled(id->last_flush))
++		    !dma_fence_is_signaled(id->last_flush))
+ 			continue;
+ 
+ 		flushed  = id->flushed_updates;
+ 		if (updates &&
+-		    (!flushed || fence_is_later(updates, flushed)))
++		    (!flushed || dma_fence_is_later(updates, flushed)))
+ 			continue;
+ 
+ 		/* Good we can use this VMID. Remember this submission as
+@@ -324,14 +324,14 @@ int amdgpu_vm_grab_id(struct amdgpu_vm *vm, struct amdgpu_ring *ring,
+ 	if (r)
+ 		goto error;
+ 
+-	fence_put(id->first);
+-	id->first = fence_get(fence);
++	dma_fence_put(id->first);
++	id->first = dma_fence_get(fence);
+ 
+-	fence_put(id->last_flush);
++	dma_fence_put(id->last_flush);
+ 	id->last_flush = NULL;
+ 
+-	fence_put(id->flushed_updates);
+-	id->flushed_updates = fence_get(updates);
++	dma_fence_put(id->flushed_updates);
++	id->flushed_updates = dma_fence_get(updates);
+ 
+ 	id->pd_gpu_addr = job->vm_pd_addr;
+ 	id->current_gpu_reset_count = atomic_read(&adev->gpu_reset_counter);
+@@ -402,7 +402,7 @@ int amdgpu_vm_flush(struct amdgpu_ring *ring, struct amdgpu_job *job)
+ 
+ 	if (ring->funcs->emit_vm_flush && (job->vm_needs_flush ||
+ 	    amdgpu_vm_is_gpu_reset(adev, id))) {
+-		struct fence *fence;
++		struct dma_fence *fence;
+ 
+ 		trace_amdgpu_vm_flush(job->vm_pd_addr, ring->idx, job->vm_id);
+ 		amdgpu_ring_emit_vm_flush(ring, job->vm_id, job->vm_pd_addr);
+@@ -412,7 +412,7 @@ int amdgpu_vm_flush(struct amdgpu_ring *ring, struct amdgpu_job *job)
+ 			return r;
+ 
+ 		mutex_lock(&adev->vm_manager.lock);
+-		fence_put(id->last_flush);
++		dma_fence_put(id->last_flush);
+ 		id->last_flush = fence;
+ 		mutex_unlock(&adev->vm_manager.lock);
+ 	}
+@@ -580,7 +580,7 @@ int amdgpu_vm_update_page_directory(struct amdgpu_device *adev,
+ 	unsigned count = 0, pt_idx, ndw;
+ 	struct amdgpu_job *job;
+ 	struct amdgpu_pte_update_params params;
+-	struct fence *fence = NULL;
++	struct dma_fence *fence = NULL;
+ 
+ 	int r;
+ 
+@@ -690,9 +690,9 @@ int amdgpu_vm_update_page_directory(struct amdgpu_device *adev,
+ 		goto error_free;
+ 
+ 	amdgpu_bo_fence(vm->page_directory, fence, true);
+-	fence_put(vm->page_directory_fence);
+-	vm->page_directory_fence = fence_get(fence);
+-	fence_put(fence);
++	dma_fence_put(vm->page_directory_fence);
++	vm->page_directory_fence = dma_fence_get(fence);
++	dma_fence_put(fence);
+ 
+ 	return 0;
+ 
+@@ -878,20 +878,20 @@ static void amdgpu_vm_frag_ptes(struct amdgpu_pte_update_params	*params,
+  * Returns 0 for success, -EINVAL for failure.
+  */
+ static int amdgpu_vm_bo_update_mapping(struct amdgpu_device *adev,
+-				       struct fence *exclusive,
++				       struct dma_fence *exclusive,
+ 				       uint64_t src,
+ 				       dma_addr_t *pages_addr,
+ 				       struct amdgpu_vm *vm,
+ 				       uint64_t start, uint64_t last,
+ 				       uint32_t flags, uint64_t addr,
+-				       struct fence **fence)
++				       struct dma_fence **fence)
+ {
+ 	struct amdgpu_ring *ring;
+ 	void *owner = AMDGPU_FENCE_OWNER_VM;
+ 	unsigned nptes, ncmds, ndw;
+ 	struct amdgpu_job *job;
+ 	struct amdgpu_pte_update_params params;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	int r;
+ 
+ 	memset(&params, 0, sizeof(params));
+@@ -994,10 +994,10 @@ static int amdgpu_vm_bo_update_mapping(struct amdgpu_device *adev,
+ 
+ 	amdgpu_bo_fence(vm->page_directory, f, true);
+ 	if (fence) {
+-		fence_put(*fence);
+-		*fence = fence_get(f);
++		dma_fence_put(*fence);
++		*fence = dma_fence_get(f);
+ 	}
+-	fence_put(f);
++	dma_fence_put(f);
+ 	return 0;
+ 
+ error_free:
+@@ -1023,14 +1023,14 @@ error_free:
+  * Returns 0 for success, -EINVAL for failure.
+  */
+ static int amdgpu_vm_bo_split_mapping(struct amdgpu_device *adev,
+-				      struct fence *exclusive,
++				      struct dma_fence *exclusive,
+ 				      uint32_t gtt_flags,
+ 				      dma_addr_t *pages_addr,
+ 				      struct amdgpu_vm *vm,
+ 				      struct amdgpu_bo_va_mapping *mapping,
+ 				      uint32_t flags,
+ 				      struct ttm_mem_reg *mem,
+-				      struct fence **fence)
++				      struct dma_fence **fence)
+ {
+ 	struct drm_mm_node *nodes = mem ? mem->mm_node : NULL;
+ 	uint64_t pfn, src = 0, start = mapping->it.start;
+@@ -1134,7 +1134,7 @@ int amdgpu_vm_bo_update(struct amdgpu_device *adev,
+ 	uint32_t gtt_flags, flags;
+ 	struct ttm_mem_reg *mem;
+ 	struct drm_mm_node *nodes;
+-	struct fence *exclusive;
++	struct dma_fence *exclusive;
+ 	int r;
+ 
+ 	if (clear) {
+@@ -1510,7 +1510,7 @@ void amdgpu_vm_bo_rmv(struct amdgpu_device *adev,
+ 		kfree(mapping);
+ 	}
+ 
+-	fence_put(bo_va->last_pt_update);
++	dma_fence_put(bo_va->last_pt_update);
+ 	kfree(bo_va);
+ }
+ 
+@@ -1661,7 +1661,7 @@ void amdgpu_vm_fini(struct amdgpu_device *adev, struct amdgpu_vm *vm)
+ 
+ 	amdgpu_bo_unref(&vm->page_directory->shadow);
+ 	amdgpu_bo_unref(&vm->page_directory);
+-	fence_put(vm->page_directory_fence);
++	dma_fence_put(vm->page_directory_fence);
+ }
+ 
+ /**
+@@ -1707,9 +1707,9 @@ void amdgpu_vm_manager_fini(struct amdgpu_device *adev)
+ 	for (i = 0; i < AMDGPU_NUM_VM; ++i) {
+ 		struct amdgpu_vm_id *id = &adev->vm_manager.ids[i];
+ 
+-		fence_put(adev->vm_manager.ids[i].first);
++		dma_fence_put(adev->vm_manager.ids[i].first);
+ 		amdgpu_sync_free(&adev->vm_manager.ids[i].active);
+-		fence_put(id->flushed_updates);
+-		fence_put(id->last_flush);
++		dma_fence_put(id->flushed_updates);
++		dma_fence_put(id->last_flush);
+ 	}
+ }
+diff --git a/amd/amdgpu/amdgpu_vm.h b/amd/amdgpu/amdgpu_vm.h
+index 3e89de4..bf0940a 100644
+--- a/amd/amdgpu/amdgpu_vm.h
++++ b/amd/amdgpu/amdgpu_vm.h
+@@ -94,7 +94,7 @@ struct amdgpu_vm {
+ 	/* contains the page directory */
+ 	struct amdgpu_bo	*page_directory;
+ 	unsigned		max_pde_used;
+-	struct fence		*page_directory_fence;
++	struct dma_fence		*page_directory_fence;
+ 	uint64_t		last_eviction_counter;
+ 
+ 	/* array of page tables, one for each page directory entry */
+@@ -115,14 +115,14 @@ struct amdgpu_vm {
+ 
+ struct amdgpu_vm_id {
+ 	struct list_head	list;
+-	struct fence		*first;
++	struct dma_fence		*first;
+ 	struct amdgpu_sync	active;
+-	struct fence		*last_flush;
++	struct dma_fence		*last_flush;
+ 	atomic64_t		owner;
+ 
+ 	uint64_t		pd_gpu_addr;
+ 	/* last flushed PD/PT update */
+-	struct fence		*flushed_updates;
++	struct dma_fence		*flushed_updates;
+ 
+ 	uint32_t                current_gpu_reset_count;
+ 
+@@ -177,7 +177,7 @@ int amdgpu_vm_validate_pt_bos(struct amdgpu_device *adev, struct amdgpu_vm *vm,
+ void amdgpu_vm_move_pt_bos_in_lru(struct amdgpu_device *adev,
+ 				  struct amdgpu_vm *vm);
+ int amdgpu_vm_grab_id(struct amdgpu_vm *vm, struct amdgpu_ring *ring,
+-		      struct amdgpu_sync *sync, struct fence *fence,
++		      struct amdgpu_sync *sync, struct dma_fence *fence,
+ 		      struct amdgpu_job *job);
+ int amdgpu_vm_flush(struct amdgpu_ring *ring, struct amdgpu_job *job);
+ void amdgpu_vm_reset_id(struct amdgpu_device *adev, unsigned vm_id);
+diff --git a/amd/amdgpu/cik_sdma.c b/amd/amdgpu/cik_sdma.c
+index 914058f..49e81ac 100644
+--- a/amd/amdgpu/cik_sdma.c
++++ b/amd/amdgpu/cik_sdma.c
+@@ -621,7 +621,7 @@ static int cik_sdma_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_ib ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	unsigned index;
+ 	u32 tmp = 0;
+ 	u64 gpu_addr;
+@@ -654,7 +654,7 @@ static int cik_sdma_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 	if (r)
+ 		goto err1;
+ 
+-	r = fence_wait_timeout(f, false, timeout);
++	r = dma_fence_wait_timeout(f, false, timeout);
+ 	if (r == 0) {
+ 		DRM_ERROR("amdgpu: IB test timed out\n");
+ 		r = -ETIMEDOUT;
+@@ -674,7 +674,7 @@ static int cik_sdma_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 
+ err1:
+ 	amdgpu_ib_free(adev, &ib, NULL);
+-	fence_put(f);
++	dma_fence_put(f);
+ err0:
+ 	amdgpu_wb_free(adev, index);
+ 	return r;
+diff --git a/amd/amdgpu/dce_v10_0.c b/amd/amdgpu/dce_v10_0.c
+index 6fa1f8c..76cdc46 100644
+--- a/amd/amdgpu/dce_v10_0.c
++++ b/amd/amdgpu/dce_v10_0.c
+@@ -2032,6 +2032,7 @@ static int dce_v10_0_crtc_do_set_base(struct drm_crtc *crtc,
+ 	u32 tmp, viewport_w, viewport_h;
+ 	int r;
+ 	bool bypass_lut = false;
++  struct drm_format_name_buf format_name;
+ 
+ 	/* no fb bound */
+ 	if (!atomic && !crtc->primary->fb) {
+@@ -2144,7 +2145,7 @@ static int dce_v10_0_crtc_do_set_base(struct drm_crtc *crtc,
+ 		break;
+ 	default:
+ 		DRM_ERROR("Unsupported screen format %s\n",
+-			drm_get_format_name(target_fb->pixel_format));
++              drm_get_format_name(target_fb->pixel_format, &format_name));
+ 		return -EINVAL;
+ 	}
+ 
+@@ -2706,13 +2707,13 @@ static void dce_v10_0_crtc_dpms(struct drm_crtc *crtc, int mode)
+ 		type = amdgpu_crtc_idx_to_irq_type(adev, amdgpu_crtc->crtc_id);
+ 		amdgpu_irq_update(adev, &adev->crtc_irq, type);
+ 		amdgpu_irq_update(adev, &adev->pageflip_irq, type);
+-		drm_vblank_on(dev, amdgpu_crtc->crtc_id);
++		drm_crtc_vblank_on(crtc);
+ 		dce_v10_0_crtc_load_lut(crtc);
+ 		break;
+ 	case DRM_MODE_DPMS_STANDBY:
+ 	case DRM_MODE_DPMS_SUSPEND:
+ 	case DRM_MODE_DPMS_OFF:
+-		drm_vblank_off(dev, amdgpu_crtc->crtc_id);
++		drm_crtc_vblank_off(crtc);
+ 		if (amdgpu_crtc->enabled) {
+ 			dce_v10_0_vga_enable(crtc, true);
+ 			amdgpu_atombios_crtc_blank(crtc, ATOM_ENABLE);
+diff --git a/amd/amdgpu/dce_v11_0.c b/amd/amdgpu/dce_v11_0.c
+index 0ebbfff..0e4d3b6 100644
+--- a/amd/amdgpu/dce_v11_0.c
++++ b/amd/amdgpu/dce_v11_0.c
+@@ -2013,6 +2013,7 @@ static int dce_v11_0_crtc_do_set_base(struct drm_crtc *crtc,
+ 	u32 tmp, viewport_w, viewport_h;
+ 	int r;
+ 	bool bypass_lut = false;
++  struct drm_format_name_buf format_name;
+ 
+ 	/* no fb bound */
+ 	if (!atomic && !crtc->primary->fb) {
+@@ -2125,7 +2126,7 @@ static int dce_v11_0_crtc_do_set_base(struct drm_crtc *crtc,
+ 		break;
+ 	default:
+ 		DRM_ERROR("Unsupported screen format %s\n",
+-			drm_get_format_name(target_fb->pixel_format));
++              drm_get_format_name(target_fb->pixel_format, &format_name));
+ 		return -EINVAL;
+ 	}
+ 
+@@ -2722,13 +2723,13 @@ static void dce_v11_0_crtc_dpms(struct drm_crtc *crtc, int mode)
+ 		type = amdgpu_crtc_idx_to_irq_type(adev, amdgpu_crtc->crtc_id);
+ 		amdgpu_irq_update(adev, &adev->crtc_irq, type);
+ 		amdgpu_irq_update(adev, &adev->pageflip_irq, type);
+-		drm_vblank_on(dev, amdgpu_crtc->crtc_id);
++		drm_crtc_vblank_on(crtc);
+ 		dce_v11_0_crtc_load_lut(crtc);
+ 		break;
+ 	case DRM_MODE_DPMS_STANDBY:
+ 	case DRM_MODE_DPMS_SUSPEND:
+ 	case DRM_MODE_DPMS_OFF:
+-		drm_vblank_off(dev, amdgpu_crtc->crtc_id);
++		drm_crtc_vblank_off(crtc);
+ 		if (amdgpu_crtc->enabled) {
+ 			dce_v11_0_vga_enable(crtc, true);
+ 			amdgpu_atombios_crtc_blank(crtc, ATOM_ENABLE);
+diff --git a/amd/amdgpu/dce_v6_0.c b/amd/amdgpu/dce_v6_0.c
+index 2cbd4bb..b7158cf 100644
+--- a/amd/amdgpu/dce_v6_0.c
++++ b/amd/amdgpu/dce_v6_0.c
+@@ -1464,6 +1464,7 @@ static int dce_v6_0_crtc_do_set_base(struct drm_crtc *crtc,
+ 	u32 viewport_w, viewport_h;
+ 	int r;
+ 	bool bypass_lut = false;
++  struct drm_format_name_buf format_name;
+ 
+ 	/* no fb bound */
+ 	if (!atomic && !crtc->primary->fb) {
+@@ -1567,7 +1568,7 @@ static int dce_v6_0_crtc_do_set_base(struct drm_crtc *crtc,
+ 		break;
+ 	default:
+ 		DRM_ERROR("Unsupported screen format %s\n",
+-			  drm_get_format_name(target_fb->pixel_format));
++              drm_get_format_name(target_fb->pixel_format, &format_name));
+ 		return -EINVAL;
+ 	}
+ 
+@@ -2070,13 +2071,13 @@ static void dce_v6_0_crtc_dpms(struct drm_crtc *crtc, int mode)
+ 		type = amdgpu_crtc_idx_to_irq_type(adev, amdgpu_crtc->crtc_id);
+ 		amdgpu_irq_update(adev, &adev->crtc_irq, type);
+ 		amdgpu_irq_update(adev, &adev->pageflip_irq, type);
+-		drm_vblank_post_modeset(dev, amdgpu_crtc->crtc_id);
++		drm_crtc_vblank_on(crtc);
+ 		dce_v6_0_crtc_load_lut(crtc);
+ 		break;
+ 	case DRM_MODE_DPMS_STANDBY:
+ 	case DRM_MODE_DPMS_SUSPEND:
+ 	case DRM_MODE_DPMS_OFF:
+-		drm_vblank_pre_modeset(dev, amdgpu_crtc->crtc_id);
++		drm_crtc_vblank_off(crtc);
+ 		if (amdgpu_crtc->enabled)
+ 			amdgpu_atombios_crtc_blank(crtc, ATOM_ENABLE);
+ 		amdgpu_atombios_crtc_enable(crtc, ATOM_DISABLE);
+diff --git a/amd/amdgpu/dce_v8_0.c b/amd/amdgpu/dce_v8_0.c
+index 5f8f3f8..92f53ec 100644
+--- a/amd/amdgpu/dce_v8_0.c
++++ b/amd/amdgpu/dce_v8_0.c
+@@ -1910,6 +1910,7 @@ static int dce_v8_0_crtc_do_set_base(struct drm_crtc *crtc,
+ 	u32 viewport_w, viewport_h;
+ 	int r;
+ 	bool bypass_lut = false;
++  struct drm_format_name_buf format_name;
+ 
+ 	/* no fb bound */
+ 	if (!atomic && !crtc->primary->fb) {
+@@ -2015,7 +2016,7 @@ static int dce_v8_0_crtc_do_set_base(struct drm_crtc *crtc,
+ 		break;
+ 	default:
+ 		DRM_ERROR("Unsupported screen format %s\n",
+-			  drm_get_format_name(target_fb->pixel_format));
++              drm_get_format_name(target_fb->pixel_format, &format_name));
+ 		return -EINVAL;
+ 	}
+ 
+@@ -2557,13 +2558,13 @@ static void dce_v8_0_crtc_dpms(struct drm_crtc *crtc, int mode)
+ 		type = amdgpu_crtc_idx_to_irq_type(adev, amdgpu_crtc->crtc_id);
+ 		amdgpu_irq_update(adev, &adev->crtc_irq, type);
+ 		amdgpu_irq_update(adev, &adev->pageflip_irq, type);
+-		drm_vblank_on(dev, amdgpu_crtc->crtc_id);
++		drm_crtc_vblank_on(crtc);
+ 		dce_v8_0_crtc_load_lut(crtc);
+ 		break;
+ 	case DRM_MODE_DPMS_STANDBY:
+ 	case DRM_MODE_DPMS_SUSPEND:
+ 	case DRM_MODE_DPMS_OFF:
+-		drm_vblank_off(dev, amdgpu_crtc->crtc_id);
++		drm_crtc_vblank_off(crtc);
+ 		if (amdgpu_crtc->enabled) {
+ 			dce_v8_0_vga_enable(crtc, true);
+ 			amdgpu_atombios_crtc_blank(crtc, ATOM_ENABLE);
+diff --git a/amd/amdgpu/dce_virtual.c b/amd/amdgpu/dce_virtual.c
+index 57da2df..7a10c5e 100644
+--- a/amd/amdgpu/dce_virtual.c
++++ b/amd/amdgpu/dce_virtual.c
+@@ -225,12 +225,12 @@ static void dce_virtual_crtc_dpms(struct drm_crtc *crtc, int mode)
+ 		/* Make sure VBLANK interrupts are still enabled */
+ 		type = amdgpu_crtc_idx_to_irq_type(adev, amdgpu_crtc->crtc_id);
+ 		amdgpu_irq_update(adev, &adev->crtc_irq, type);
+-		drm_vblank_on(dev, amdgpu_crtc->crtc_id);
++		drm_crtc_vblank_on(crtc);
+ 		break;
+ 	case DRM_MODE_DPMS_STANDBY:
+ 	case DRM_MODE_DPMS_SUSPEND:
+ 	case DRM_MODE_DPMS_OFF:
+-		drm_vblank_off(dev, amdgpu_crtc->crtc_id);
++		drm_crtc_vblank_off(crtc);
+ 		amdgpu_crtc->enabled = false;
+ 		break;
+ 	}
+diff --git a/amd/amdgpu/gfx_v6_0.c b/amd/amdgpu/gfx_v6_0.c
+index 4a633a3..b323f5e 100644
+--- a/amd/amdgpu/gfx_v6_0.c
++++ b/amd/amdgpu/gfx_v6_0.c
+@@ -1953,7 +1953,7 @@ static int gfx_v6_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_ib ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	uint32_t scratch;
+ 	uint32_t tmp = 0;
+ 	long r;
+@@ -1979,7 +1979,7 @@ static int gfx_v6_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 	if (r)
+ 		goto err2;
+ 
+-	r = fence_wait_timeout(f, false, timeout);
++	r = dma_fence_wait_timeout(f, false, timeout);
+ 	if (r == 0) {
+ 		DRM_ERROR("amdgpu: IB test timed out\n");
+ 		r = -ETIMEDOUT;
+@@ -2000,7 +2000,7 @@ static int gfx_v6_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 
+ err2:
+ 	amdgpu_ib_free(adev, &ib, NULL);
+-	fence_put(f);
++	dma_fence_put(f);
+ err1:
+ 	amdgpu_gfx_scratch_free(adev, scratch);
+ 	return r;
+diff --git a/amd/amdgpu/gfx_v7_0.c b/amd/amdgpu/gfx_v7_0.c
+index acb91f1..ad157bb 100644
+--- a/amd/amdgpu/gfx_v7_0.c
++++ b/amd/amdgpu/gfx_v7_0.c
+@@ -2317,7 +2317,7 @@ static int gfx_v7_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_ib ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	uint32_t scratch;
+ 	uint32_t tmp = 0;
+ 	long r;
+@@ -2343,7 +2343,7 @@ static int gfx_v7_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 	if (r)
+ 		goto err2;
+ 
+-	r = fence_wait_timeout(f, false, timeout);
++	r = dma_fence_wait_timeout(f, false, timeout);
+ 	if (r == 0) {
+ 		DRM_ERROR("amdgpu: IB test timed out\n");
+ 		r = -ETIMEDOUT;
+@@ -2364,7 +2364,7 @@ static int gfx_v7_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 
+ err2:
+ 	amdgpu_ib_free(adev, &ib, NULL);
+-	fence_put(f);
++	dma_fence_put(f);
+ err1:
+ 	amdgpu_gfx_scratch_free(adev, scratch);
+ 	return r;
+diff --git a/amd/amdgpu/gfx_v8_0.c b/amd/amdgpu/gfx_v8_0.c
+index 6853969..0bcb1c6 100644
+--- a/amd/amdgpu/gfx_v8_0.c
++++ b/amd/amdgpu/gfx_v8_0.c
+@@ -799,7 +799,7 @@ static int gfx_v8_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_ib ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	uint32_t scratch;
+ 	uint32_t tmp = 0;
+ 	long r;
+@@ -825,7 +825,7 @@ static int gfx_v8_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 	if (r)
+ 		goto err2;
+ 
+-	r = fence_wait_timeout(f, false, timeout);
++	r = dma_fence_wait_timeout(f, false, timeout);
+ 	if (r == 0) {
+ 		DRM_ERROR("amdgpu: IB test timed out.\n");
+ 		r = -ETIMEDOUT;
+@@ -845,7 +845,7 @@ static int gfx_v8_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 	}
+ err2:
+ 	amdgpu_ib_free(adev, &ib, NULL);
+-	fence_put(f);
++	dma_fence_put(f);
+ err1:
+ 	amdgpu_gfx_scratch_free(adev, scratch);
+ 	return r;
+@@ -1565,7 +1565,7 @@ static int gfx_v8_0_do_edc_gpr_workarounds(struct amdgpu_device *adev)
+ {
+ 	struct amdgpu_ring *ring = &adev->gfx.compute_ring[0];
+ 	struct amdgpu_ib ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	int r, i;
+ 	u32 tmp;
+ 	unsigned total_size, vgpr_offset, sgpr_offset;
+@@ -1698,7 +1698,7 @@ static int gfx_v8_0_do_edc_gpr_workarounds(struct amdgpu_device *adev)
+ 	}
+ 
+ 	/* wait for the GPU to finish processing the IB */
+-	r = fence_wait(f, false);
++	r = dma_fence_wait(f, false);
+ 	if (r) {
+ 		DRM_ERROR("amdgpu: fence wait failed (%d).\n", r);
+ 		goto fail;
+@@ -1719,7 +1719,7 @@ static int gfx_v8_0_do_edc_gpr_workarounds(struct amdgpu_device *adev)
+ 
+ fail:
+ 	amdgpu_ib_free(adev, &ib, NULL);
+-	fence_put(f);
++	dma_fence_put(f);
+ 
+ 	return r;
+ }
+diff --git a/amd/amdgpu/sdma_v2_4.c b/amd/amdgpu/sdma_v2_4.c
+index a26222d..9f7ae30 100644
+--- a/amd/amdgpu/sdma_v2_4.c
++++ b/amd/amdgpu/sdma_v2_4.c
+@@ -672,7 +672,7 @@ static int sdma_v2_4_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_ib ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	unsigned index;
+ 	u32 tmp = 0;
+ 	u64 gpu_addr;
+@@ -709,7 +709,7 @@ static int sdma_v2_4_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 	if (r)
+ 		goto err1;
+ 
+-	r = fence_wait_timeout(f, false, timeout);
++	r = dma_fence_wait_timeout(f, false, timeout);
+ 	if (r == 0) {
+ 		DRM_ERROR("amdgpu: IB test timed out\n");
+ 		r = -ETIMEDOUT;
+@@ -729,7 +729,7 @@ static int sdma_v2_4_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 
+ err1:
+ 	amdgpu_ib_free(adev, &ib, NULL);
+-	fence_put(f);
++	dma_fence_put(f);
+ err0:
+ 	amdgpu_wb_free(adev, index);
+ 	return r;
+diff --git a/amd/amdgpu/sdma_v3_0.c b/amd/amdgpu/sdma_v3_0.c
+index 28db380..ade71dd 100644
+--- a/amd/amdgpu/sdma_v3_0.c
++++ b/amd/amdgpu/sdma_v3_0.c
+@@ -875,7 +875,7 @@ static int sdma_v3_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_ib ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	unsigned index;
+ 	u32 tmp = 0;
+ 	u64 gpu_addr;
+@@ -912,7 +912,7 @@ static int sdma_v3_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 	if (r)
+ 		goto err1;
+ 
+-	r = fence_wait_timeout(f, false, timeout);
++	r = dma_fence_wait_timeout(f, false, timeout);
+ 	if (r == 0) {
+ 		DRM_ERROR("amdgpu: IB test timed out\n");
+ 		r = -ETIMEDOUT;
+@@ -931,7 +931,7 @@ static int sdma_v3_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 	}
+ err1:
+ 	amdgpu_ib_free(adev, &ib, NULL);
+-	fence_put(f);
++	dma_fence_put(f);
+ err0:
+ 	amdgpu_wb_free(adev, index);
+ 	return r;
+diff --git a/amd/amdgpu/si_dma.c b/amd/amdgpu/si_dma.c
+index 14265c5..3dd552a 100644
+--- a/amd/amdgpu/si_dma.c
++++ b/amd/amdgpu/si_dma.c
+@@ -274,7 +274,7 @@ static int si_dma_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ {
+ 	struct amdgpu_device *adev = ring->adev;
+ 	struct amdgpu_ib ib;
+-	struct fence *f = NULL;
++	struct dma_fence *f = NULL;
+ 	unsigned index;
+ 	u32 tmp = 0;
+ 	u64 gpu_addr;
+@@ -305,7 +305,7 @@ static int si_dma_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 	if (r)
+ 		goto err1;
+ 
+-	r = fence_wait_timeout(f, false, timeout);
++	r = dma_fence_wait_timeout(f, false, timeout);
+ 	if (r == 0) {
+ 		DRM_ERROR("amdgpu: IB test timed out\n");
+ 		r = -ETIMEDOUT;
+@@ -325,7 +325,7 @@ static int si_dma_ring_test_ib(struct amdgpu_ring *ring, long timeout)
+ 
+ err1:
+ 	amdgpu_ib_free(adev, &ib, NULL);
+-	fence_put(f);
++	dma_fence_put(f);
+ err0:
+ 	amdgpu_wb_free(adev, index);
+ 	return r;
+diff --git a/amd/amdkcl/kcl_drm.c b/amd/amdkcl/kcl_drm.c
+index b1b1b13..a373162 100644
+--- a/amd/amdkcl/kcl_drm.c
++++ b/amd/amdkcl/kcl_drm.c
+@@ -333,7 +333,7 @@ int drm_atomic_helper_disable_all(struct drm_device *dev,
+ 
+ free:
+ 	if (err < 0)
+-		drm_atomic_state_free(state);
++		drm_atomic_state_put(state);
+ 
+ 	return err;
+ }
+@@ -391,7 +391,7 @@ drm_atomic_helper_duplicate_state(struct drm_device *dev,
+ 
+ free:
+ 	if (err < 0) {
+-		drm_atomic_state_free(state);
++		drm_atomic_state_put(state);
+ 		state = ERR_PTR(err);
+ 	}
+ 
+@@ -421,7 +421,7 @@ retry:
+ 
+ 	err = drm_atomic_helper_disable_all(dev, &ctx);
+ 	if (err < 0) {
+-		drm_atomic_state_free(state);
++		drm_atomic_state_put(state);
+ 		state = ERR_PTR(err);
+ 		goto unlock;
+ 	}
+diff --git a/amd/amdkcl/kcl_fence.c b/amd/amdkcl/kcl_fence.c
+index cb97695..56511ba 100644
+--- a/amd/amdkcl/kcl_fence.c
++++ b/amd/amdkcl/kcl_fence.c
+@@ -3,7 +3,7 @@
+ #include "kcl_common.h"
+ 
+ #define CREATE_TRACE_POINTS
+-#include <trace/events/fence.h>
++#include <trace/events/dma_fence.h>
+ 
+ static atomic64_t fence_context_counter = ATOMIC64_INIT(0);
+ u64 _kcl_fence_context_alloc(unsigned num)
+@@ -14,7 +14,7 @@ u64 _kcl_fence_context_alloc(unsigned num)
+ EXPORT_SYMBOL(_kcl_fence_context_alloc);
+ 
+ void
+-_kcl_fence_init(struct fence *fence, const struct fence_ops *ops,
++_kcl_fence_init(struct dma_fence *fence, const struct dma_fence_ops *ops,
+ 	     spinlock_t *lock, u64 context, unsigned seqno)
+ {
+ 	BUG_ON(!lock);
+@@ -29,18 +29,19 @@ _kcl_fence_init(struct fence *fence, const struct fence_ops *ops,
+ 	fence->seqno = seqno;
+ 	fence->flags = 0UL;
+ 
+-	trace_fence_init(fence);
++	trace_dma_fence_init(fence);
+ }
+ EXPORT_SYMBOL(_kcl_fence_init);
+ 
+ static bool
+-fence_test_signaled_any(struct fence **fences, uint32_t count, uint32_t *idx)
++fence_test_signaled_any(struct dma_fence **fences, uint32_t count,
++			uint32_t *idx)
+ {
+ 	int i;
+ 
+ 	for (i = 0; i < count; ++i) {
+-		struct fence *fence = fences[i];
+-		if (test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags)) {
++		struct dma_fence *fence = fences[i];
++		if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags)) {
+ 			if (idx)
+ 				*idx = i;
+ 			return true;
+@@ -50,21 +51,23 @@ fence_test_signaled_any(struct fence **fences, uint32_t count, uint32_t *idx)
+ }
+ 
+ struct default_wait_cb {
+-	struct fence_cb base;
++	struct dma_fence_cb base;
+ 	struct task_struct *task;
+ };
+ 
+-static void (*_kcl_fence_default_wait_cb)(struct fence *fence, struct fence_cb *cb);
++static void (*_kcl_fence_default_wait_cb)(struct dma_fence *fence,
++					  struct dma_fence_cb *cb);
+ 
+ signed long
+-kcl_fence_default_wait(struct fence *fence, bool intr, signed long timeout)
++kcl_fence_default_wait(struct dma_fence *fence, bool intr,
++		       signed long timeout)
+ {
+ 	struct default_wait_cb cb;
+ 	unsigned long flags;
+ 	signed long ret = timeout ? timeout : 1;
+ 	bool was_set;
+ 
+-	if (test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags))
++	if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags))
+ 		return ret;
+ 
+ 	spin_lock_irqsave(fence->lock, flags);
+@@ -74,16 +77,16 @@ kcl_fence_default_wait(struct fence *fence, bool intr, signed long timeout)
+ 		goto out;
+ 	}
+ 
+-	was_set = test_and_set_bit(FENCE_FLAG_ENABLE_SIGNAL_BIT, &fence->flags);
++	was_set = test_and_set_bit(DMA_FENCE_FLAG_ENABLE_SIGNAL_BIT, &fence->flags);
+ 
+-	if (test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags))
++	if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags))
+ 		goto out;
+ 
+ 	if (!was_set) {
+-		trace_fence_enable_signal(fence);
++		trace_dma_fence_enable_signal(fence);
+ 
+ 		if (!fence->ops->enable_signaling(fence)) {
+-			fence_signal_locked(fence);
++			dma_fence_signal_locked(fence);
+ 			goto out;
+ 		}
+ 	}
+@@ -97,7 +100,7 @@ kcl_fence_default_wait(struct fence *fence, bool intr, signed long timeout)
+ 	cb.task = current;
+ 	list_add(&cb.base.node, &fence->cb_list);
+ 
+-	while (!test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags) && ret > 0) {
++	while (!test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags) && ret > 0) {
+ 		if (intr)
+ 			__set_current_state(TASK_INTERRUPTIBLE);
+ 		else
+@@ -122,7 +125,7 @@ out:
+ EXPORT_SYMBOL(kcl_fence_default_wait);
+ 
+ signed long
+-_kcl_fence_wait_any_timeout(struct fence **fences, uint32_t count,
++_kcl_fence_wait_any_timeout(struct dma_fence **fences, uint32_t count,
+ 		       bool intr, signed long timeout, uint32_t *idx)
+ {
+ 	struct default_wait_cb *cb;
+@@ -134,7 +137,7 @@ _kcl_fence_wait_any_timeout(struct fence **fences, uint32_t count,
+ 
+ 	if (timeout == 0) {
+ 		for (i = 0; i < count; ++i)
+-			if (fence_is_signaled(fences[i])) {
++			if (dma_fence_is_signaled(fences[i])) {
+ 				if (idx)
+ 					*idx = i;
+ 				return 1;
+@@ -150,7 +153,7 @@ _kcl_fence_wait_any_timeout(struct fence **fences, uint32_t count,
+ 	}
+ 
+ 	for (i = 0; i < count; ++i) {
+-		struct fence *fence = fences[i];
++		struct dma_fence *fence = fences[i];
+ 
+ 		if (fence->ops->wait != kcl_fence_default_wait) {
+ 			ret = -EINVAL;
+@@ -158,7 +161,7 @@ _kcl_fence_wait_any_timeout(struct fence **fences, uint32_t count,
+ 		}
+ 
+ 		cb[i].task = current;
+-		if (fence_add_callback(fence, &cb[i].base,
++		if (dma_fence_add_callback(fence, &cb[i].base,
+ 				       _kcl_fence_default_wait_cb)) {
+ 			/* This fence is already signaled */
+ 			if (idx)
+@@ -186,7 +189,7 @@ _kcl_fence_wait_any_timeout(struct fence **fences, uint32_t count,
+ 
+ fence_rm_cb:
+ 	while (i-- > 0)
+-		fence_remove_callback(fences[i], &cb[i].base);
++		dma_fence_remove_callback(fences[i], &cb[i].base);
+ 
+ err_free_cb:
+ 	kfree(cb);
+@@ -196,21 +199,22 @@ err_free_cb:
+ EXPORT_SYMBOL(_kcl_fence_wait_any_timeout);
+ 
+ signed long
+-_kcl_fence_wait_timeout(struct fence *fence, bool intr, signed long timeout)
++_kcl_fence_wait_timeout(struct dma_fence *fence, bool intr,
++			signed long timeout)
+ {
+ 	signed long ret;
+ 
+ 	if (WARN_ON(timeout < 0))
+ 		return -EINVAL;
+ 
+-	trace_fence_wait_start(fence);
++	trace_dma_fence_wait_start(fence);
+ 	ret = fence->ops->wait(fence, intr, timeout);
+-	trace_fence_wait_end(fence);
++	trace_dma_fence_wait_end(fence);
+ 	return ret;
+ }
+ EXPORT_SYMBOL(_kcl_fence_wait_timeout);
+ 
+ void amdkcl_fence_init(void)
+ {
+-	_kcl_fence_default_wait_cb = amdkcl_fp_setup("fence_default_wait_cb", NULL);
++	_kcl_fence_default_wait_cb = amdkcl_fp_setup("dma_fence_default_wait_cb", NULL);
+ }
+diff --git a/amd/amdkcl/kcl_reservation.c b/amd/amdkcl/kcl_reservation.c
+index dcc1329..7821bfa 100644
+--- a/amd/amdkcl/kcl_reservation.c
++++ b/amd/amdkcl/kcl_reservation.c
+@@ -5,7 +5,7 @@ long _kcl_reservation_object_wait_timeout_rcu(struct reservation_object *obj,
+ 					 bool wait_all, bool intr,
+ 					 unsigned long timeout)
+ {
+-	struct fence *fence;
++	struct dma_fence *fence;
+ 	unsigned seq, shared_count, i = 0;
+ 	long ret = timeout ? timeout : 1;
+ 
+@@ -26,16 +26,16 @@ retry:
+ 			goto unlock_retry;
+ 
+ 		for (i = 0; i < shared_count; ++i) {
+-			struct fence *lfence = rcu_dereference(fobj->shared[i]);
++			struct dma_fence *lfence = rcu_dereference(fobj->shared[i]);
+ 
+-			if (test_bit(FENCE_FLAG_SIGNALED_BIT, &lfence->flags))
++			if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &lfence->flags))
+ 				continue;
+ 
+-			if (!fence_get_rcu(lfence))
++			if (!dma_fence_get_rcu(lfence))
+ 				goto unlock_retry;
+ 
+-			if (fence_is_signaled(lfence)) {
+-				fence_put(lfence);
++			if (dma_fence_is_signaled(lfence)) {
++				dma_fence_put(lfence);
+ 				continue;
+ 			}
+ 
+@@ -45,18 +45,18 @@ retry:
+ 	}
+ 
+ 	if (!shared_count) {
+-		struct fence *fence_excl = rcu_dereference(obj->fence_excl);
++		struct dma_fence *fence_excl = rcu_dereference(obj->fence_excl);
+ 
+ 		if (read_seqcount_retry(&obj->seq, seq))
+ 			goto unlock_retry;
+ 
+ 		if (fence_excl &&
+-		    !test_bit(FENCE_FLAG_SIGNALED_BIT, &fence_excl->flags)) {
+-			if (!fence_get_rcu(fence_excl))
++		    !test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence_excl->flags)) {
++			if (!dma_fence_get_rcu(fence_excl))
+ 				goto unlock_retry;
+ 
+-			if (fence_is_signaled(fence_excl))
+-				fence_put(fence_excl);
++			if (dma_fence_is_signaled(fence_excl))
++				dma_fence_put(fence_excl);
+ 			else
+ 				fence = fence_excl;
+ 		}
+@@ -65,7 +65,7 @@ retry:
+ 	rcu_read_unlock();
+ 	if (fence) {
+ 		ret = kcl_fence_wait_timeout(fence, intr, ret);
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 		if (ret > 0 && wait_all && (i + 1 < shared_count))
+ 			goto retry;
+ 	}
+@@ -79,18 +79,18 @@ EXPORT_SYMBOL(_kcl_reservation_object_wait_timeout_rcu);
+ 
+ #ifdef OS_NAME_RHEL_6
+ static inline int
+-reservation_object_test_signaled_single(struct fence *passed_fence)
++reservation_object_test_signaled_single(struct dma_fence *passed_fence)
+ {
+-	struct fence *fence, *lfence = passed_fence;
++	struct dma_fence *fence, *lfence = passed_fence;
+ 	int ret = 1;
+ 
+-	if (!test_bit(FENCE_FLAG_SIGNALED_BIT, &lfence->flags)) {
+-		fence = fence_get_rcu(lfence);
++	if (!test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &lfence->flags)) {
++		fence = dma_fence_get_rcu(lfence);
+ 		if (!fence)
+ 			return -1;
+ 
+-		ret = !!fence_is_signaled(fence);
+-		fence_put(fence);
++		ret = !!dma_fence_is_signaled(fence);
++		dma_fence_put(fence);
+ 	}
+ 	return ret;
+ }
+@@ -118,7 +118,7 @@ retry:
+ 			goto unlock_retry;
+ 
+ 		for (i = 0; i < shared_count; ++i) {
+-			struct fence *fence = rcu_dereference(fobj->shared[i]);
++			struct dma_fence *fence = rcu_dereference(fobj->shared[i]);
+ 
+ 			ret = reservation_object_test_signaled_single(fence);
+ 			if (ret < 0)
+@@ -136,7 +136,7 @@ retry:
+ 	}
+ 
+ 	if (!shared_count) {
+-		struct fence *fence_excl = rcu_dereference(obj->fence_excl);
++		struct dma_fence *fence_excl = rcu_dereference(obj->fence_excl);
+ 
+ 		if (read_seqcount_retry(&obj->seq, seq))
+ 			goto unlock_retry;
+diff --git a/amd/amdkcl/symbols.c b/amd/amdkcl/symbols.c
+new file mode 100644
+index 0000000..e483bbb
+--- /dev/null
++++ b/amd/amdkcl/symbols.c
+@@ -0,0 +1 @@
++// auto generated by DKMS pre-build.sh
+diff --git a/amd/display/amdgpu_dm/amdgpu_dm.c b/amd/display/amdgpu_dm/amdgpu_dm.c
+index 5700861..9c08610 100644
+--- a/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -612,7 +612,7 @@ static int dm_display_resume(struct drm_device *ddev)
+ 
+ err:
+ 	DRM_ERROR("Restoring old state failed with %i\n", ret);
+-	drm_atomic_state_free(state);
++	drm_atomic_state_put(state);
+ 
+ 	return ret;
+ }
+diff --git a/amd/display/amdgpu_dm/amdgpu_dm_types.c b/amd/display/amdgpu_dm/amdgpu_dm_types.c
+index 7039542..d6bde1e 100644
+--- a/amd/display/amdgpu_dm/amdgpu_dm_types.c
++++ b/amd/display/amdgpu_dm/amdgpu_dm_types.c
+@@ -1120,7 +1120,7 @@ fail:
+ 	if (ret == -EDEADLK)
+ 		goto backoff;
+ 
+-	drm_atomic_state_free(state);
++	drm_atomic_state_put(state);
+ 
+ 	return ret;
+ backoff:
+@@ -2821,7 +2821,7 @@ int amdgpu_dm_atomic_commit(
+ 	if (!async)
+ 		drm_atomic_helper_cleanup_planes(dev, state);
+ 
+-	drm_atomic_state_free(state);
++	drm_atomic_state_put(state);
+ 
+ 	return 0;
+ }
+diff --git a/amd/scheduler/gpu_sched_trace.h b/amd/scheduler/gpu_sched_trace.h
+index b961a1c..dbd4fd3 100644
+--- a/amd/scheduler/gpu_sched_trace.h
++++ b/amd/scheduler/gpu_sched_trace.h
+@@ -17,7 +17,7 @@ TRACE_EVENT(amd_sched_job,
+ 	    TP_STRUCT__entry(
+ 			     __field(struct amd_sched_entity *, entity)
+ 			     __field(struct amd_sched_job *, sched_job)
+-			     __field(struct fence *, fence)
++			     __field(struct dma_fence *, fence)
+ 			     __field(const char *, name)
+ 			     __field(u32, job_count)
+ 			     __field(int, hw_job_count)
+@@ -42,7 +42,7 @@ TRACE_EVENT(amd_sched_process_job,
+ 	    TP_PROTO(struct amd_sched_fence *fence),
+ 	    TP_ARGS(fence),
+ 	    TP_STRUCT__entry(
+-		    __field(struct fence *, fence)
++		    __field(struct dma_fence *, fence)
+ 		    ),
+ 
+ 	    TP_fast_assign(
+diff --git a/amd/scheduler/gpu_scheduler.c b/amd/scheduler/gpu_scheduler.c
+index 3ff25af..a4f695d 100644
+--- a/amd/scheduler/gpu_scheduler.c
++++ b/amd/scheduler/gpu_scheduler.c
+@@ -32,7 +32,8 @@
+ 
+ static bool amd_sched_entity_is_ready(struct amd_sched_entity *entity);
+ static void amd_sched_wakeup(struct amd_gpu_scheduler *sched);
+-static void amd_sched_process_job(struct fence *f, struct fence_cb *cb);
++static void amd_sched_process_job(struct dma_fence *f,
++				  struct dma_fence_cb *cb);
+ 
+ /* Initialize a given run queue struct */
+ static void amd_sched_rq_init(struct amd_sched_rq *rq)
+@@ -218,32 +219,34 @@ void amd_sched_entity_fini(struct amd_gpu_scheduler *sched,
+ 	kfifo_free(&entity->job_queue);
+ }
+ 
+-static void amd_sched_entity_wakeup(struct fence *f, struct fence_cb *cb)
++static void amd_sched_entity_wakeup(struct dma_fence *f,
++				    struct dma_fence_cb *cb)
+ {
+ 	struct amd_sched_entity *entity =
+ 		container_of(cb, struct amd_sched_entity, cb);
+ 	entity->dependency = NULL;
+-	fence_put(f);
++	dma_fence_put(f);
+ 	amd_sched_wakeup(entity->sched);
+ }
+ 
+-static void amd_sched_entity_clear_dep(struct fence *f, struct fence_cb *cb)
++static void amd_sched_entity_clear_dep(struct dma_fence *f,
++				       struct dma_fence_cb *cb)
+ {
+ 	struct amd_sched_entity *entity =
+ 		container_of(cb, struct amd_sched_entity, cb);
+ 	entity->dependency = NULL;
+-	fence_put(f);
++	dma_fence_put(f);
+ }
+ 
+ static bool amd_sched_entity_add_dependency_cb(struct amd_sched_entity *entity)
+ {
+ 	struct amd_gpu_scheduler *sched = entity->sched;
+-	struct fence * fence = entity->dependency;
++	struct dma_fence * fence = entity->dependency;
+ 	struct amd_sched_fence *s_fence;
+ 
+ 	if (fence->context == entity->fence_context) {
+ 		/* We can ignore fences from ourself */
+-		fence_put(entity->dependency);
++		dma_fence_put(entity->dependency);
+ 		return false;
+ 	}
+ 
+@@ -254,23 +257,23 @@ static bool amd_sched_entity_add_dependency_cb(struct amd_sched_entity *entity)
+ 		 * Fence is from the same scheduler, only need to wait for
+ 		 * it to be scheduled
+ 		 */
+-		fence = fence_get(&s_fence->scheduled);
+-		fence_put(entity->dependency);
++		fence = dma_fence_get(&s_fence->scheduled);
++		dma_fence_put(entity->dependency);
+ 		entity->dependency = fence;
+-		if (!fence_add_callback(fence, &entity->cb,
++		if (!dma_fence_add_callback(fence, &entity->cb,
+ 					amd_sched_entity_clear_dep))
+ 			return true;
+ 
+ 		/* Ignore it when it is already scheduled */
+-		fence_put(fence);
++		dma_fence_put(fence);
+ 		return false;
+ 	}
+ 
+-	if (!fence_add_callback(entity->dependency, &entity->cb,
++	if (!dma_fence_add_callback(entity->dependency, &entity->cb,
+ 				amd_sched_entity_wakeup))
+ 		return true;
+ 
+-	fence_put(entity->dependency);
++	dma_fence_put(entity->dependency);
+ 	return false;
+ }
+ 
+@@ -351,7 +354,8 @@ static void amd_sched_job_finish(struct work_struct *work)
+ 	sched->ops->free_job(s_job);
+ }
+ 
+-static void amd_sched_job_finish_cb(struct fence *f, struct fence_cb *cb)
++static void amd_sched_job_finish_cb(struct dma_fence *f,
++				    struct dma_fence_cb *cb)
+ {
+ 	struct amd_sched_job *job = container_of(cb, struct amd_sched_job,
+ 						 finish_cb);
+@@ -385,8 +389,8 @@ void amd_sched_hw_job_reset(struct amd_gpu_scheduler *sched)
+ 
+ 	spin_lock(&sched->job_list_lock);
+ 	list_for_each_entry_reverse(s_job, &sched->ring_mirror_list, node) {
+-		if (fence_remove_callback(s_job->s_fence->parent, &s_job->s_fence->cb)) {
+-			fence_put(s_job->s_fence->parent);
++		if (dma_fence_remove_callback(s_job->s_fence->parent, &s_job->s_fence->cb)) {
++			dma_fence_put(s_job->s_fence->parent);
+ 			s_job->s_fence->parent = NULL;
+ 		}
+ 	}
+@@ -407,21 +411,21 @@ void amd_sched_job_recovery(struct amd_gpu_scheduler *sched)
+ 
+ 	list_for_each_entry_safe(s_job, tmp, &sched->ring_mirror_list, node) {
+ 		struct amd_sched_fence *s_fence = s_job->s_fence;
+-		struct fence *fence;
++		struct dma_fence *fence;
+ 
+ 		spin_unlock(&sched->job_list_lock);
+ 		fence = sched->ops->run_job(s_job);
+ 		atomic_inc(&sched->hw_rq_count);
+ 		if (fence) {
+-			s_fence->parent = fence_get(fence);
+-			r = fence_add_callback(fence, &s_fence->cb,
++			s_fence->parent = dma_fence_get(fence);
++			r = dma_fence_add_callback(fence, &s_fence->cb,
+ 					       amd_sched_process_job);
+ 			if (r == -ENOENT)
+ 				amd_sched_process_job(fence, &s_fence->cb);
+ 			else if (r)
+ 				DRM_ERROR("fence add callback failed (%d)\n",
+ 					  r);
+-			fence_put(fence);
++			dma_fence_put(fence);
+ 		} else {
+ 			DRM_ERROR("Failed to run job!\n");
+ 			amd_sched_process_job(NULL, &s_fence->cb);
+@@ -443,7 +447,7 @@ void amd_sched_entity_push_job(struct amd_sched_job *sched_job)
+ 	struct amd_sched_entity *entity = sched_job->s_entity;
+ 
+ 	trace_amd_sched_job(sched_job);
+-	fence_add_callback(&sched_job->s_fence->finished, &sched_job->finish_cb,
++	dma_fence_add_callback(&sched_job->s_fence->finished, &sched_job->finish_cb,
+ 			   amd_sched_job_finish_cb);
+ 	wait_event(entity->sched->job_scheduled,
+ 		   amd_sched_entity_in(sched_job));
+@@ -508,7 +512,8 @@ amd_sched_select_entity(struct amd_gpu_scheduler *sched)
+ 	return entity;
+ }
+ 
+-static void amd_sched_process_job(struct fence *f, struct fence_cb *cb)
++static void amd_sched_process_job(struct dma_fence *f,
++				  struct dma_fence_cb *cb)
+ {
+ 	struct amd_sched_fence *s_fence =
+ 		container_of(cb, struct amd_sched_fence, cb);
+@@ -518,7 +523,7 @@ static void amd_sched_process_job(struct fence *f, struct fence_cb *cb)
+ 	amd_sched_fence_finished(s_fence);
+ 
+ 	trace_amd_sched_process_job(s_fence);
+-	fence_put(&s_fence->finished);
++	dma_fence_put(&s_fence->finished);
+ 	wake_up_interruptible(&sched->wake_up_worker);
+ }
+ 
+@@ -544,7 +549,7 @@ static int amd_sched_main(void *param)
+ 		struct amd_sched_entity *entity = NULL;
+ 		struct amd_sched_fence *s_fence;
+ 		struct amd_sched_job *sched_job;
+-		struct fence *fence;
++		struct dma_fence *fence;
+ 
+ 		wait_event_interruptible(sched->wake_up_worker,
+ 					 (!amd_sched_blocked(sched) &&
+@@ -566,15 +571,15 @@ static int amd_sched_main(void *param)
+ 		fence = sched->ops->run_job(sched_job);
+ 		amd_sched_fence_scheduled(s_fence);
+ 		if (fence) {
+-			s_fence->parent = fence_get(fence);
+-			r = fence_add_callback(fence, &s_fence->cb,
++			s_fence->parent = dma_fence_get(fence);
++			r = dma_fence_add_callback(fence, &s_fence->cb,
+ 					       amd_sched_process_job);
+ 			if (r == -ENOENT)
+ 				amd_sched_process_job(fence, &s_fence->cb);
+ 			else if (r)
+ 				DRM_ERROR("fence add callback failed (%d)\n",
+ 					  r);
+-			fence_put(fence);
++			dma_fence_put(fence);
+ 		} else {
+ 			DRM_ERROR("Failed to run job!\n");
+ 			amd_sched_process_job(NULL, &s_fence->cb);
+diff --git a/amd/scheduler/gpu_scheduler.h b/amd/scheduler/gpu_scheduler.h
+index 338d840..0c99210 100644
+--- a/amd/scheduler/gpu_scheduler.h
++++ b/amd/scheduler/gpu_scheduler.h
+@@ -29,7 +29,7 @@
+ #else
+ #include <linux/kfifo.h>
+ #endif
+-#include <linux/fence.h>
++#include <linux/dma-fence.h>
+ 
+ struct amd_gpu_scheduler;
+ struct amd_sched_rq;
+@@ -51,8 +51,8 @@ struct amd_sched_entity {
+ 	atomic_t			fence_seq;
+ 	uint64_t                        fence_context;
+ 
+-	struct fence			*dependency;
+-	struct fence_cb			cb;
++	struct dma_fence			*dependency;
++	struct dma_fence_cb			cb;
+ };
+ 
+ /**
+@@ -67,10 +67,10 @@ struct amd_sched_rq {
+ };
+ 
+ struct amd_sched_fence {
+-	struct fence                    scheduled;
+-	struct fence                    finished;
+-	struct fence_cb                 cb;
+-	struct fence                    *parent;
++	struct dma_fence                    scheduled;
++	struct dma_fence                    finished;
++	struct dma_fence_cb                 cb;
++	struct dma_fence                    *parent;
+ 	struct amd_gpu_scheduler	*sched;
+ 	spinlock_t			lock;
+ 	void                            *owner;
+@@ -80,15 +80,15 @@ struct amd_sched_job {
+ 	struct amd_gpu_scheduler        *sched;
+ 	struct amd_sched_entity         *s_entity;
+ 	struct amd_sched_fence          *s_fence;
+-	struct fence_cb			finish_cb;
++	struct dma_fence_cb			finish_cb;
+ 	struct work_struct		finish_work;
+ 	struct list_head		node;
+ 	struct delayed_work		work_tdr;
+ };
+ 
+-extern const struct fence_ops amd_sched_fence_ops_scheduled;
+-extern const struct fence_ops amd_sched_fence_ops_finished;
+-static inline struct amd_sched_fence *to_amd_sched_fence(struct fence *f)
++extern const struct dma_fence_ops amd_sched_fence_ops_scheduled;
++extern const struct dma_fence_ops amd_sched_fence_ops_finished;
++static inline struct amd_sched_fence *to_amd_sched_fence(struct dma_fence *f)
+ {
+ 	if (f->ops == &amd_sched_fence_ops_scheduled)
+ 		return container_of(f, struct amd_sched_fence, scheduled);
+@@ -104,8 +104,8 @@ static inline struct amd_sched_fence *to_amd_sched_fence(struct fence *f)
+  * these functions should be implemented in driver side
+ */
+ struct amd_sched_backend_ops {
+-	struct fence *(*dependency)(struct amd_sched_job *sched_job);
+-	struct fence *(*run_job)(struct amd_sched_job *sched_job);
++	struct dma_fence *(*dependency)(struct amd_sched_job *sched_job);
++	struct dma_fence *(*run_job)(struct amd_sched_job *sched_job);
+ 	void (*timedout_job)(struct amd_sched_job *sched_job);
+ 	void (*free_job)(struct amd_sched_job *sched_job);
+ };
+diff --git a/amd/scheduler/sched_fence.c b/amd/scheduler/sched_fence.c
+index a9991a7..efe4c37 100644
+--- a/amd/scheduler/sched_fence.c
++++ b/amd/scheduler/sched_fence.c
+@@ -71,36 +71,36 @@ struct amd_sched_fence *amd_sched_fence_create(struct amd_sched_entity *entity,
+ 
+ void amd_sched_fence_scheduled(struct amd_sched_fence *fence)
+ {
+-	int ret = fence_signal(&fence->scheduled);
++	int ret = dma_fence_signal(&fence->scheduled);
+ 
+ 	if (!ret)
+-		FENCE_TRACE(&fence->scheduled, "signaled from irq context\n");
++		DMA_FENCE_TRACE(&fence->scheduled, "signaled from irq context\n");
+ 	else
+-		FENCE_TRACE(&fence->scheduled, "was already signaled\n");
++		DMA_FENCE_TRACE(&fence->scheduled, "was already signaled\n");
+ }
+ 
+ void amd_sched_fence_finished(struct amd_sched_fence *fence)
+ {
+-	int ret = fence_signal(&fence->finished);
++	int ret = dma_fence_signal(&fence->finished);
+ 
+ 	if (!ret)
+-		FENCE_TRACE(&fence->finished, "signaled from irq context\n");
++		DMA_FENCE_TRACE(&fence->finished, "signaled from irq context\n");
+ 	else
+-		FENCE_TRACE(&fence->finished, "was already signaled\n");
++		DMA_FENCE_TRACE(&fence->finished, "was already signaled\n");
+ }
+ 
+-static const char *amd_sched_fence_get_driver_name(struct fence *fence)
++static const char *amd_sched_fence_get_driver_name(struct dma_fence *fence)
+ {
+ 	return "amd_sched";
+ }
+ 
+-static const char *amd_sched_fence_get_timeline_name(struct fence *f)
++static const char *amd_sched_fence_get_timeline_name(struct dma_fence *f)
+ {
+ 	struct amd_sched_fence *fence = to_amd_sched_fence(f);
+ 	return (const char *)fence->sched->name;
+ }
+ 
+-static bool amd_sched_fence_enable_signaling(struct fence *f)
++static bool amd_sched_fence_enable_signaling(struct dma_fence *f)
+ {
+ 	return true;
+ }
+@@ -114,10 +114,10 @@ static bool amd_sched_fence_enable_signaling(struct fence *f)
+  */
+ static void amd_sched_fence_free(struct rcu_head *rcu)
+ {
+-	struct fence *f = container_of(rcu, struct fence, rcu);
++	struct dma_fence *f = container_of(rcu, struct dma_fence, rcu);
+ 	struct amd_sched_fence *fence = to_amd_sched_fence(f);
+ 
+-	fence_put(fence->parent);
++	dma_fence_put(fence->parent);
+ 	kmem_cache_free(sched_fence_slab, fence);
+ }
+ 
+@@ -129,7 +129,7 @@ static void amd_sched_fence_free(struct rcu_head *rcu)
+  * This function is called when the reference count becomes zero.
+  * It just RCU schedules freeing up the fence.
+  */
+-static void amd_sched_fence_release_scheduled(struct fence *f)
++static void amd_sched_fence_release_scheduled(struct dma_fence *f)
+ {
+ 	struct amd_sched_fence *fence = to_amd_sched_fence(f);
+ 
+@@ -143,14 +143,14 @@ static void amd_sched_fence_release_scheduled(struct fence *f)
+  *
+  * Drop the extra reference from the scheduled fence to the base fence.
+  */
+-static void amd_sched_fence_release_finished(struct fence *f)
++static void amd_sched_fence_release_finished(struct dma_fence *f)
+ {
+ 	struct amd_sched_fence *fence = to_amd_sched_fence(f);
+ 
+-	fence_put(&fence->scheduled);
++	dma_fence_put(&fence->scheduled);
+ }
+ 
+-const struct fence_ops amd_sched_fence_ops_scheduled = {
++const struct dma_fence_ops amd_sched_fence_ops_scheduled = {
+ 	.get_driver_name = amd_sched_fence_get_driver_name,
+ 	.get_timeline_name = amd_sched_fence_get_timeline_name,
+ 	.enable_signaling = amd_sched_fence_enable_signaling,
+@@ -163,7 +163,7 @@ const struct fence_ops amd_sched_fence_ops_scheduled = {
+ 	.release = amd_sched_fence_release_scheduled,
+ };
+ 
+-const struct fence_ops amd_sched_fence_ops_finished = {
++const struct dma_fence_ops amd_sched_fence_ops_finished = {
+ 	.get_driver_name = amd_sched_fence_get_driver_name,
+ 	.get_timeline_name = amd_sched_fence_get_timeline_name,
+ 	.enable_signaling = amd_sched_fence_enable_signaling,
+diff --git a/include/drm/ttm/ttm_bo_api.h b/include/drm/ttm/ttm_bo_api.h
+index 9eb940d..5beae79 100644
+--- a/include/drm/ttm/ttm_bo_api.h
++++ b/include/drm/ttm/ttm_bo_api.h
+@@ -209,7 +209,7 @@ struct ttm_buffer_object {
+ 	 * Members protected by a bo reservation.
+ 	 */
+ 
+-	struct fence *moving;
++	struct dma_fence *moving;
+ 
+ 	struct drm_vma_offset_node vma_node;
+ 
+diff --git a/include/drm/ttm/ttm_bo_driver.h b/include/drm/ttm/ttm_bo_driver.h
+index f44567c..38b7534 100644
+--- a/include/drm/ttm/ttm_bo_driver.h
++++ b/include/drm/ttm/ttm_bo_driver.h
+@@ -305,7 +305,7 @@ struct ttm_mem_type_manager {
+ 	/*
+ 	 * Protected by @move_lock.
+ 	 */
+-	struct fence *move;
++	struct dma_fence *move;
+ };
+ 
+ /**
+@@ -1032,7 +1032,7 @@ extern void ttm_bo_free_old_node(struct ttm_buffer_object *bo);
+  */
+ 
+ extern int ttm_bo_move_accel_cleanup(struct ttm_buffer_object *bo,
+-				     struct fence *fence, bool evict,
++				     struct dma_fence *fence, bool evict,
+ 				     struct ttm_mem_reg *new_mem);
+ 
+ /**
+@@ -1047,7 +1047,7 @@ extern int ttm_bo_move_accel_cleanup(struct ttm_buffer_object *bo,
+  * immediately or hang it on a temporary buffer object.
+  */
+ int ttm_bo_pipeline_move(struct ttm_buffer_object *bo,
+-			 struct fence *fence, bool evict,
++			 struct dma_fence *fence, bool evict,
+ 			 struct ttm_mem_reg *new_mem);
+ 
+ /**
+diff --git a/include/drm/ttm/ttm_execbuf_util.h b/include/drm/ttm/ttm_execbuf_util.h
+index b620c31..47f35b8 100644
+--- a/include/drm/ttm/ttm_execbuf_util.h
++++ b/include/drm/ttm/ttm_execbuf_util.h
+@@ -114,6 +114,6 @@ extern int ttm_eu_reserve_buffers(struct ww_acquire_ctx *ticket,
+ 
+ extern void ttm_eu_fence_buffer_objects(struct ww_acquire_ctx *ticket,
+ 					struct list_head *list,
+-					struct fence *fence);
++					struct dma_fence *fence);
+ 
+ #endif
+diff --git a/include/kcl/kcl_fence.h b/include/kcl/kcl_fence.h
+index cf18702..b2fc1e6 100644
+--- a/include/kcl/kcl_fence.h
++++ b/include/kcl/kcl_fence.h
+@@ -2,19 +2,20 @@
+ #define AMDKCL_FENCE_H
+ 
+ #include <linux/version.h>
+-#include <linux/fence.h>
++#include <linux/dma-fence.h>
+ 
+ signed long
+-kcl_fence_default_wait(struct fence *fence, bool intr, signed long timeout);
++kcl_fence_default_wait(struct dma_fence *fence, bool intr,
++		       signed long timeout);
+ 
+ #if defined(BUILD_AS_DKMS)
+-extern signed long _kcl_fence_wait_any_timeout(struct fence **fences,
++extern signed long _kcl_fence_wait_any_timeout(struct dma_fence **fences,
+ 				   uint32_t count, bool intr,
+ 				   signed long timeout, uint32_t *idx);
+ extern u64 _kcl_fence_context_alloc(unsigned num);
+-extern void _kcl_fence_init(struct fence *fence, const struct fence_ops *ops,
++extern void _kcl_fence_init(struct dma_fence *fence, const struct dma_fence_ops *ops,
+ 	     spinlock_t *lock, u64 context, unsigned seqno);
+-extern signed long _kcl_fence_wait_timeout(struct fence *fence, bool intr,
++extern signed long _kcl_fence_wait_timeout(struct dma_fence *fence, bool intr,
+ 				signed long timeout);
+ #endif
+ 
+@@ -28,14 +29,14 @@ static inline bool fence_is_later(struct fence *f1, struct fence *f2)
+ }
+ #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0) */
+ 
+-static inline signed long kcl_fence_wait_any_timeout(struct fence **fences,
++static inline signed long kcl_fence_wait_any_timeout(struct dma_fence **fences,
+ 				   uint32_t count, bool intr,
+ 				   signed long timeout, uint32_t *idx)
+ {
+ #if defined(BUILD_AS_DKMS)
+ 	return _kcl_fence_wait_any_timeout(fences, count, intr, timeout, idx);
+ #else
+-	return fence_wait_any_timeout(fences, count, intr, timeout, idx);
++	return dma_fence_wait_any_timeout(fences, count, intr, timeout, idx);
+ #endif
+ }
+ 
+@@ -44,27 +45,27 @@ static inline u64 kcl_fence_context_alloc(unsigned num)
+ #if defined(BUILD_AS_DKMS)
+ 	return _kcl_fence_context_alloc(num);
+ #else
+-	return fence_context_alloc(num);
++	return dma_fence_context_alloc(num);
+ #endif
+ }
+ 
+-static inline void kcl_fence_init(struct fence *fence, const struct fence_ops *ops,
++static inline void kcl_fence_init(struct dma_fence *fence, const struct dma_fence_ops *ops,
+ 	     spinlock_t *lock, u64 context, unsigned seqno)
+ {
+ #if defined(BUILD_AS_DKMS)
+ 	return _kcl_fence_init(fence, ops, lock, context, seqno);
+ #else
+-	return fence_init(fence, ops, lock, context, seqno);
++	return dma_fence_init(fence, ops, lock, context, seqno);
+ #endif
+ }
+ 
+-static inline signed long kcl_fence_wait_timeout(struct fence *fences, bool intr,
++static inline signed long kcl_fence_wait_timeout(struct dma_fence *fences, bool intr,
+ 					signed long timeout)
+ {
+ #if defined(BUILD_AS_DKMS)
+ 	return _kcl_fence_wait_timeout(fences, intr, timeout);
+ #else
+-	return fence_wait_timeout(fences, intr, timeout);
++	return dma_fence_wait_timeout(fences, intr, timeout);
+ #endif
+ }
+ #endif /* AMDKCL_FENCE_H */
+diff --git a/include/kcl/kcl_fence_array.h b/include/kcl/kcl_fence_array.h
+index bb4401e..146f048 100644
+--- a/include/kcl/kcl_fence_array.h
++++ b/include/kcl/kcl_fence_array.h
+@@ -22,16 +22,17 @@
+ #ifndef __LINUX_FENCE_ARRAY_H
+ #define __LINUX_FENCE_ARRAY_H
+ 
+-#include <linux/fence.h>
++#include <linux/dma-fence.h>
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
+ /**
+  * struct fence_array_cb - callback helper for fence array
+  * @cb: fence callback structure for signaling
+  * @array: reference to the parent fence array object
+  */
+ struct fence_array_cb {
+-	struct fence_cb cb;
+-	struct fence_array *array;
++	struct dma_fence_cb cb;
++	struct dma_fence_array *array;
+ };
+ 
+ /**
+@@ -43,15 +44,15 @@ struct fence_array_cb {
+  * @fences: array of the fences
+  */
+ struct fence_array {
+-	struct fence base;
++	struct dma_fence base;
+ 
+ 	spinlock_t lock;
+ 	unsigned num_fences;
+ 	atomic_t num_pending;
+-	struct fence **fences;
++	struct dma_fence **fences;
+ };
+ 
+-extern const struct fence_ops fence_array_ops;
++extern const struct dma_fence_ops fence_array_ops;
+ 
+ /**
+  * to_fence_array - cast a fence to a fence_array
+@@ -60,16 +61,19 @@ extern const struct fence_ops fence_array_ops;
+  * Returns NULL if the fence is not a fence_array,
+  * or the fence_array otherwise.
+  */
+-static inline struct fence_array *to_fence_array(struct fence *fence)
++static inline struct dma_fence_array *to_fence_array(struct dma_fence *fence)
+ {
+ 	if (fence->ops != &fence_array_ops)
+ 		return NULL;
+ 
+-	return container_of(fence, struct fence_array, base);
++	return container_of(fence, struct dma_fence_array, base);
+ }
+ 
+-struct fence_array *fence_array_create(int num_fences, struct fence **fences,
++struct dma_fence_array *fence_array_create(int num_fences, struct dma_fence **fences,
+ 				       u64 context, unsigned seqno,
+ 				       bool signal_on_any);
++#else
++#include <linux/dma-fence-array.h>
++#endif
+ 
+ #endif /* __LINUX_FENCE_ARRAY_H */
+diff --git a/include/rename_symbol.h b/include/rename_symbol.h
+new file mode 100644
+index 0000000..be22497
+--- /dev/null
++++ b/include/rename_symbol.h
+@@ -0,0 +1,88 @@
++#define ttm_agp_tt_create amdttm_agp_tt_create //ttm/ttm_agp_backend.c:EXPORT_SYMBOL(ttm_agp_tt_create);
++#define ttm_agp_tt_populate amdttm_agp_tt_populate //ttm/ttm_agp_backend.c:EXPORT_SYMBOL(ttm_agp_tt_populate);
++#define ttm_agp_tt_unpopulate amdttm_agp_tt_unpopulate //ttm/ttm_agp_backend.c:EXPORT_SYMBOL(ttm_agp_tt_unpopulate);
++#define ttm_bo_acc_size amdttm_bo_acc_size //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_acc_size);
++#define ttm_bo_add_to_lru amdttm_bo_add_to_lru //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_add_to_lru);
++#define ttm_bo_clean_mm amdttm_bo_clean_mm //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_clean_mm);
++#define ttm_bo_create amdttm_bo_create //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_create);
++#define ttm_bo_default_lru_tail amdttm_bo_default_lru_tail //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_default_lru_tail);
++#define ttm_bo_default_swap_lru_tail amdttm_bo_default_swap_lru_tail //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_default_swap_lru_tail);
++#define ttm_bo_del_sub_from_lru amdttm_bo_del_sub_from_lru //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_del_sub_from_lru);
++#define ttm_bo_device_init amdttm_bo_device_init //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_device_init);
++#define ttm_bo_device_release amdttm_bo_device_release //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_device_release);
++#define ttm_bo_dma_acc_size amdttm_bo_dma_acc_size //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_dma_acc_size);
++#define ttm_bo_evict_mm amdttm_bo_evict_mm //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_evict_mm);
++#define ttm_bo_global_init amdttm_bo_global_init //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_global_init);
++#define ttm_bo_global_release amdttm_bo_global_release //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_global_release);
++#define ttm_bo_init amdttm_bo_init //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_init);
++#define ttm_bo_init_mm amdttm_bo_init_mm //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_init_mm);
++#define ttm_bo_lock_delayed_workqueue amdttm_bo_lock_delayed_workqueue //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_lock_delayed_workqueue);
++#define ttm_bo_mem_compat amdttm_bo_mem_compat //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_mem_compat);
++#define ttm_bo_mem_put amdttm_bo_mem_put //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_mem_put);
++#define ttm_bo_mem_space amdttm_bo_mem_space //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_mem_space);
++#define ttm_bo_move_to_lru_tail amdttm_bo_move_to_lru_tail //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_move_to_lru_tail);
++#define ttm_bo_swapout_all amdttm_bo_swapout_all //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_swapout_all);
++#define ttm_bo_synccpu_write_grab amdttm_bo_synccpu_write_grab //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_synccpu_write_grab);
++#define ttm_bo_synccpu_write_release amdttm_bo_synccpu_write_release //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_synccpu_write_release);
++#define ttm_bo_unlock_delayed_workqueue amdttm_bo_unlock_delayed_workqueue //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_unlock_delayed_workqueue);
++#define ttm_bo_unmap_virtual amdttm_bo_unmap_virtual //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_unmap_virtual);
++#define ttm_bo_unref amdttm_bo_unref //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_unref);
++#define ttm_bo_validate amdttm_bo_validate //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_validate);
++#define ttm_bo_wait amdttm_bo_wait //ttm/ttm_bo.c:EXPORT_SYMBOL(ttm_bo_wait);
++#define ttm_bo_manager_func amdttm_bo_manager_func //ttm/ttm_bo_manager.c:EXPORT_SYMBOL(ttm_bo_manager_func);
++#define ttm_bo_kmap amdttm_bo_kmap //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_bo_kmap);
++#define ttm_bo_kunmap amdttm_bo_kunmap //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_bo_kunmap);
++#define ttm_bo_move_accel_cleanup amdttm_bo_move_accel_cleanup //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_bo_move_accel_cleanup);
++#define ttm_bo_move_memcpy amdttm_bo_move_memcpy //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_bo_move_memcpy);
++#define ttm_bo_move_ttm amdttm_bo_move_ttm //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_bo_move_ttm);
++#define ttm_bo_pipeline_move amdttm_bo_pipeline_move //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_bo_pipeline_move);
++#define ttm_io_prot amdttm_io_prot //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_io_prot);
++#define ttm_mem_io_free amdttm_mem_io_free //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_mem_io_free);
++#define ttm_mem_io_lock amdttm_mem_io_lock //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_mem_io_lock);
++#define ttm_mem_io_reserve amdttm_mem_io_reserve //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_mem_io_reserve);
++#define ttm_mem_io_unlock amdttm_mem_io_unlock //ttm/ttm_bo_util.c:EXPORT_SYMBOL(ttm_mem_io_unlock);
++#define ttm_bo_mmap amdttm_bo_mmap //ttm/ttm_bo_vm.c:EXPORT_SYMBOL(ttm_bo_mmap);
++#define ttm_fbdev_mmap amdttm_fbdev_mmap //ttm/ttm_bo_vm.c:EXPORT_SYMBOL(ttm_fbdev_mmap);
++#define ttm_eu_backoff_reservation amdttm_eu_backoff_reservation //ttm/ttm_execbuf_util.c:EXPORT_SYMBOL(ttm_eu_backoff_reservation);
++#define ttm_eu_fence_buffer_objects amdttm_eu_fence_buffer_objects //ttm/ttm_execbuf_util.c:EXPORT_SYMBOL(ttm_eu_fence_buffer_objects);
++#define ttm_eu_reserve_buffers amdttm_eu_reserve_buffers //ttm/ttm_execbuf_util.c:EXPORT_SYMBOL(ttm_eu_reserve_buffers);
++#define ttm_lock_init amdttm_lock_init //ttm/ttm_lock.c:EXPORT_SYMBOL(ttm_lock_init);
++#define ttm_read_lock amdttm_read_lock //ttm/ttm_lock.c:EXPORT_SYMBOL(ttm_read_lock);
++#define ttm_read_unlock amdttm_read_unlock //ttm/ttm_lock.c:EXPORT_SYMBOL(ttm_read_unlock);
++#define ttm_suspend_lock amdttm_suspend_lock //ttm/ttm_lock.c:EXPORT_SYMBOL(ttm_suspend_lock);
++#define ttm_suspend_unlock amdttm_suspend_unlock //ttm/ttm_lock.c:EXPORT_SYMBOL(ttm_suspend_unlock);
++#define ttm_vt_lock amdttm_vt_lock //ttm/ttm_lock.c:EXPORT_SYMBOL(ttm_vt_lock);
++#define ttm_vt_unlock amdttm_vt_unlock //ttm/ttm_lock.c:EXPORT_SYMBOL(ttm_vt_unlock);
++#define ttm_write_lock amdttm_write_lock //ttm/ttm_lock.c:EXPORT_SYMBOL(ttm_write_lock);
++#define ttm_write_unlock amdttm_write_unlock //ttm/ttm_lock.c:EXPORT_SYMBOL(ttm_write_unlock);
++#define ttm_mem_global_alloc amdttm_mem_global_alloc //ttm/ttm_memory.c:EXPORT_SYMBOL(ttm_mem_global_alloc);
++#define ttm_mem_global_free amdttm_mem_global_free //ttm/ttm_memory.c:EXPORT_SYMBOL(ttm_mem_global_free);
++#define ttm_mem_global_init amdttm_mem_global_init //ttm/ttm_memory.c:EXPORT_SYMBOL(ttm_mem_global_init);
++#define ttm_mem_global_release amdttm_mem_global_release //ttm/ttm_memory.c:EXPORT_SYMBOL(ttm_mem_global_release);
++#define ttm_round_pot amdttm_round_pot //ttm/ttm_memory.c:EXPORT_SYMBOL(ttm_round_pot);
++#define ttm_prime_fd_to_handle amdttm_prime_fd_to_handle //ttm/ttm_object.c:EXPORT_SYMBOL_GPL(ttm_prime_fd_to_handle);
++#define ttm_prime_handle_to_fd amdttm_prime_handle_to_fd //ttm/ttm_object.c:EXPORT_SYMBOL_GPL(ttm_prime_handle_to_fd);
++#define ttm_base_object_init amdttm_base_object_init //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_base_object_init);
++#define ttm_base_object_lookup amdttm_base_object_lookup //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_base_object_lookup);
++#define ttm_base_object_lookup_for_ref amdttm_base_object_lookup_for_ref //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_base_object_lookup_for_ref);
++#define ttm_base_object_unref amdttm_base_object_unref //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_base_object_unref);
++#define ttm_object_device_init amdttm_object_device_init //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_object_device_init);
++#define ttm_object_device_release amdttm_object_device_release //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_object_device_release);
++#define ttm_object_file_init amdttm_object_file_init //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_object_file_init);
++#define ttm_object_file_release amdttm_object_file_release //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_object_file_release);
++#define ttm_prime_object_init amdttm_prime_object_init //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_prime_object_init);
++#define ttm_ref_object_add amdttm_ref_object_add //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_ref_object_add);
++#define ttm_ref_object_base_unref amdttm_ref_object_base_unref //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_ref_object_base_unref);
++#define ttm_ref_object_exists amdttm_ref_object_exists //ttm/ttm_object.c:EXPORT_SYMBOL(ttm_ref_object_exists);
++#define ttm_page_alloc_debugfs amdttm_page_alloc_debugfs //ttm/ttm_page_alloc.c:EXPORT_SYMBOL(ttm_page_alloc_debugfs);
++#define ttm_pool_populate amdttm_pool_populate //ttm/ttm_page_alloc.c:EXPORT_SYMBOL(ttm_pool_populate);
++#define ttm_pool_unpopulate amdttm_pool_unpopulate //ttm/ttm_page_alloc.c:EXPORT_SYMBOL(ttm_pool_unpopulate);
++#define ttm_dma_page_alloc_debugfs amdttm_dma_page_alloc_debugfs //ttm/ttm_page_alloc_dma.c:EXPORT_SYMBOL_GPL(ttm_dma_page_alloc_debugfs);
++#define ttm_dma_populate amdttm_dma_populate //ttm/ttm_page_alloc_dma.c:EXPORT_SYMBOL_GPL(ttm_dma_populate);
++#define ttm_dma_unpopulate amdttm_dma_unpopulate //ttm/ttm_page_alloc_dma.c:EXPORT_SYMBOL_GPL(ttm_dma_unpopulate);
++#define ttm_dma_tt_fini amdttm_dma_tt_fini //ttm/ttm_tt.c:EXPORT_SYMBOL(ttm_dma_tt_fini);
++#define ttm_dma_tt_init amdttm_dma_tt_init //ttm/ttm_tt.c:EXPORT_SYMBOL(ttm_dma_tt_init);
++#define ttm_tt_bind amdttm_tt_bind //ttm/ttm_tt.c:EXPORT_SYMBOL(ttm_tt_bind);
++#define ttm_tt_fini amdttm_tt_fini //ttm/ttm_tt.c:EXPORT_SYMBOL(ttm_tt_fini);
++#define ttm_tt_init amdttm_tt_init //ttm/ttm_tt.c:EXPORT_SYMBOL(ttm_tt_init);
++#define ttm_tt_set_placement_caching amdttm_tt_set_placement_caching //ttm/ttm_tt.c:EXPORT_SYMBOL(ttm_tt_set_placement_caching);
+diff --git a/ttm/ttm_bo.c b/ttm/ttm_bo.c
+index 93bad84..2c4a2ee 100644
+--- a/ttm/ttm_bo.c
++++ b/ttm/ttm_bo.c
+@@ -150,7 +150,7 @@ static void ttm_bo_release_list(struct kref *list_kref)
+ 
+ 	ttm_tt_destroy(bo->ttm);
+ 	atomic_dec(&bo->glob->bo_count);
+-	fence_put(bo->moving);
++	dma_fence_put(bo->moving);
+ 	if (bo->resv == &bo->ttm_resv)
+ 		reservation_object_fini(&bo->ttm_resv);
+ 	mutex_destroy(&bo->wu_mutex);
+@@ -430,20 +430,20 @@ static void ttm_bo_cleanup_memtype_use(struct ttm_buffer_object *bo)
+ static void ttm_bo_flush_all_fences(struct ttm_buffer_object *bo)
+ {
+ 	struct reservation_object_list *fobj;
+-	struct fence *fence;
++	struct dma_fence *fence;
+ 	int i;
+ 
+ 	fobj = reservation_object_get_list(bo->resv);
+ 	fence = reservation_object_get_excl(bo->resv);
+ 	if (fence && !fence->ops->signaled)
+-		fence_enable_sw_signaling(fence);
++		dma_fence_enable_sw_signaling(fence);
+ 
+ 	for (i = 0; fobj && i < fobj->shared_count; ++i) {
+ 		fence = rcu_dereference_protected(fobj->shared[i],
+ 					reservation_object_held(bo->resv));
+ 
+ 		if (!fence->ops->signaled)
+-			fence_enable_sw_signaling(fence);
++			dma_fence_enable_sw_signaling(fence);
+ 	}
+ }
+ 
+@@ -796,11 +796,11 @@ static int ttm_bo_add_move_fence(struct ttm_buffer_object *bo,
+ 				 struct ttm_mem_type_manager *man,
+ 				 struct ttm_mem_reg *mem)
+ {
+-	struct fence *fence;
++	struct dma_fence *fence;
+ 	int ret;
+ 
+ 	spin_lock(&man->move_lock);
+-	fence = fence_get(man->move);
++	fence = dma_fence_get(man->move);
+ 	spin_unlock(&man->move_lock);
+ 
+ 	if (fence) {
+@@ -810,7 +810,7 @@ static int ttm_bo_add_move_fence(struct ttm_buffer_object *bo,
+ 		if (unlikely(ret))
+ 			return ret;
+ 
+-		fence_put(bo->moving);
++		dma_fence_put(bo->moving);
+ 		bo->moving = fence;
+ 	}
+ 
+@@ -1290,7 +1290,7 @@ static int ttm_bo_force_list_clean(struct ttm_bo_device *bdev,
+ {
+ 	struct ttm_mem_type_manager *man = &bdev->man[mem_type];
+ 	struct ttm_bo_global *glob = bdev->glob;
+-	struct fence *fence;
++	struct dma_fence *fence;
+ 	int ret;
+ 
+ 	/*
+@@ -1313,12 +1313,12 @@ static int ttm_bo_force_list_clean(struct ttm_bo_device *bdev,
+ 	spin_unlock(&glob->lru_lock);
+ 
+ 	spin_lock(&man->move_lock);
+-	fence = fence_get(man->move);
++	fence = dma_fence_get(man->move);
+ 	spin_unlock(&man->move_lock);
+ 
+ 	if (fence) {
+-		ret = fence_wait(fence, false);
+-		fence_put(fence);
++		ret = dma_fence_wait(fence, false);
++		dma_fence_put(fence);
+ 		if (ret) {
+ 			if (allow_errors) {
+ 				return ret;
+@@ -1347,7 +1347,7 @@ int ttm_bo_clean_mm(struct ttm_bo_device *bdev, unsigned mem_type)
+ 		       mem_type);
+ 		return ret;
+ 	}
+-	fence_put(man->move);
++	dma_fence_put(man->move);
+ 
+ 	man->use_type = false;
+ 	man->has_type = false;
+diff --git a/ttm/ttm_bo_util.c b/ttm/ttm_bo_util.c
+index d705166..846a5fb 100644
+--- a/ttm/ttm_bo_util.c
++++ b/ttm/ttm_bo_util.c
+@@ -661,7 +661,7 @@ void ttm_bo_kunmap(struct ttm_bo_kmap_obj *map)
+ EXPORT_SYMBOL(ttm_bo_kunmap);
+ 
+ int ttm_bo_move_accel_cleanup(struct ttm_buffer_object *bo,
+-			      struct fence *fence,
++			      struct dma_fence *fence,
+ 			      bool evict,
+ 			      struct ttm_mem_reg *new_mem)
+ {
+@@ -691,8 +691,8 @@ int ttm_bo_move_accel_cleanup(struct ttm_buffer_object *bo,
+ 		 * operation has completed.
+ 		 */
+ 
+-		fence_put(bo->moving);
+-		bo->moving = fence_get(fence);
++		dma_fence_put(bo->moving);
++		bo->moving = dma_fence_get(fence);
+ 
+ 		ret = ttm_buffer_object_transfer(bo, &ghost_obj);
+ 		if (ret)
+@@ -723,7 +723,7 @@ int ttm_bo_move_accel_cleanup(struct ttm_buffer_object *bo,
+ EXPORT_SYMBOL(ttm_bo_move_accel_cleanup);
+ 
+ int ttm_bo_pipeline_move(struct ttm_buffer_object *bo,
+-			 struct fence *fence, bool evict,
++			 struct dma_fence *fence, bool evict,
+ 			 struct ttm_mem_reg *new_mem)
+ {
+ 	struct ttm_bo_device *bdev = bo->bdev;
+@@ -747,8 +747,8 @@ int ttm_bo_pipeline_move(struct ttm_buffer_object *bo,
+ 		 * operation has completed.
+ 		 */
+ 
+-		fence_put(bo->moving);
+-		bo->moving = fence_get(fence);
++		dma_fence_put(bo->moving);
++		bo->moving = dma_fence_get(fence);
+ 
+ 		ret = ttm_buffer_object_transfer(bo, &ghost_obj);
+ 		if (ret)
+@@ -778,16 +778,16 @@ int ttm_bo_pipeline_move(struct ttm_buffer_object *bo,
+ 		 */
+ 
+ 		spin_lock(&from->move_lock);
+-		if (!from->move || fence_is_later(fence, from->move)) {
+-			fence_put(from->move);
+-			from->move = fence_get(fence);
++		if (!from->move || dma_fence_is_later(fence, from->move)) {
++			dma_fence_put(from->move);
++			from->move = dma_fence_get(fence);
+ 		}
+ 		spin_unlock(&from->move_lock);
+ 
+ 		ttm_bo_free_old_node(bo);
+ 
+-		fence_put(bo->moving);
+-		bo->moving = fence_get(fence);
++		dma_fence_put(bo->moving);
++		bo->moving = dma_fence_get(fence);
+ 
+ 	} else {
+ 		/**
+diff --git a/ttm/ttm_bo_vm.c b/ttm/ttm_bo_vm.c
+index a7d769f..61b6ed4 100644
+--- a/ttm/ttm_bo_vm.c
++++ b/ttm/ttm_bo_vm.c
+@@ -57,7 +57,7 @@ static int ttm_bo_vm_fault_idle(struct ttm_buffer_object *bo,
+ 	/*
+ 	 * Quick non-stalling check for idle.
+ 	 */
+-	if (fence_is_signaled(bo->moving))
++	if (dma_fence_is_signaled(bo->moving))
+ 		goto out_clear;
+ 
+ 	/*
+@@ -72,14 +72,14 @@ static int ttm_bo_vm_fault_idle(struct ttm_buffer_object *bo,
+ #endif
+ 
+ 		up_read(&vma->vm_mm->mmap_sem);
+-		(void) fence_wait(bo->moving, true);
++		(void) dma_fence_wait(bo->moving, true);
+ 		goto out_unlock;
+ 	}
+ 
+ 	/*
+ 	 * Ordinary wait.
+ 	 */
+-	ret = fence_wait(bo->moving, true);
++	ret = dma_fence_wait(bo->moving, true);
+ 	if (unlikely(ret != 0)) {
+ 		ret = (ret != -ERESTARTSYS) ? VM_FAULT_SIGBUS :
+ 			VM_FAULT_NOPAGE;
+@@ -87,7 +87,7 @@ static int ttm_bo_vm_fault_idle(struct ttm_buffer_object *bo,
+ 	}
+ 
+ out_clear:
+-	fence_put(bo->moving);
++	dma_fence_put(bo->moving);
+ 	bo->moving = NULL;
+ 
+ out_unlock:
+@@ -106,7 +106,7 @@ static int ttm_bo_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+ 	struct page *page;
+ 	int ret;
+ 	int i;
+-	unsigned long address = (unsigned long)vmf->virtual_address;
++	unsigned long address = vmf->address;
+ 	int retval = VM_FAULT_NOPAGE;
+ 	struct ttm_mem_type_manager *man =
+ 		&bdev->man[bo->mem.mem_type];
+diff --git a/ttm/ttm_execbuf_util.c b/ttm/ttm_execbuf_util.c
+index a80717b..d35bc49 100644
+--- a/ttm/ttm_execbuf_util.c
++++ b/ttm/ttm_execbuf_util.c
+@@ -179,7 +179,8 @@ int ttm_eu_reserve_buffers(struct ww_acquire_ctx *ticket,
+ EXPORT_SYMBOL(ttm_eu_reserve_buffers);
+ 
+ void ttm_eu_fence_buffer_objects(struct ww_acquire_ctx *ticket,
+-				 struct list_head *list, struct fence *fence)
++				 struct list_head *list,
++				 struct dma_fence *fence)
+ {
+ 	struct ttm_validate_buffer *entry;
+ 	struct ttm_buffer_object *bo;
+-- 
+2.11.1
+
