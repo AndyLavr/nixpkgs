@@ -9,6 +9,8 @@
 , galliumDrivers ? null
 , driDrivers ? null
 , vulkanDrivers ? null
+, version ? "17.0.0"
+, sha256 ? "10c4cvm6hhdch0idh2kn7qv1dq6zlw97sc3pz7bssn81f1ckvnrr"
 }:
 
 /** Packaging design:
@@ -63,7 +65,6 @@ let
 in
 
 let
-  version = "17.0.0";
   branch  = head (splitString "." version);
   driverLink = "/run/opengl-driver" + optionalString stdenv.isi686 "-32";
 in
@@ -77,7 +78,7 @@ stdenv.mkDerivation {
       "ftp://ftp.freedesktop.org/pub/mesa/older-versions/${branch}.x/${version}/mesa-${version}.tar.xz"
       "https://launchpad.net/mesa/trunk/${version}/+download/mesa-${version}.tar.xz"
     ];
-    sha256 = "10c4cvm6hhdch0idh2kn7qv1dq6zlw97sc3pz7bssn81f1ckvnrr";
+    inherit sha256;
   };
 
   prePatch = "patchShebangs .";
