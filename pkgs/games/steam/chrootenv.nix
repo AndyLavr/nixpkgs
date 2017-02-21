@@ -1,5 +1,6 @@
 { stdenv, lib, writeScript, buildFHSUserEnv, steam
 , steam-runtime, steam-runtime-i686 ? null
+, pkgsi686Linux
 , withJava ? false
 , withPrimus ? false
 , nativeOnly ? false
@@ -87,6 +88,7 @@ in buildFHSUserEnv rec {
   profile = ''
     export STEAM_RUNTIME=/steamrt
     export TZDIR=/etc/zoneinfo
+    export LD_PRELOAD=${pkgsi686Linux.openssl.out}/lib/libcrypto.so
   '';
 
   runScript = "steam";
